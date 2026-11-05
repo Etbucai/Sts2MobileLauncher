@@ -18,6 +18,22 @@ import kotlin.test.assertEquals
 
 class SteamContentServerMappingTest {
     @Test
+    fun steamWebSocketHostsPreferStandardTlsPort() {
+        assertEquals(
+            "wss://cmp1-tyo3.steamserver.net:443/cmsocket/",
+            SteamPacketCodec.buildWebSocketUri("cmp1-tyo3.steamserver.net:27020"),
+        )
+        assertEquals(
+            "wss://example.test:27020/cmsocket/",
+            SteamPacketCodec.buildWebSocketUri("example.test:27020"),
+        )
+        assertEquals(
+            "wss://192.0.2.1:27020/cmsocket/",
+            SteamPacketCodec.buildWebSocketUri("192.0.2.1:27020"),
+        )
+    }
+
+    @Test
     fun cmResponseMapsBypassProxyTypes() = runBlocking {
         val response = CContentServerDirectory_GetServersForSteamPipe_Response.newBuilder()
             .addServers(

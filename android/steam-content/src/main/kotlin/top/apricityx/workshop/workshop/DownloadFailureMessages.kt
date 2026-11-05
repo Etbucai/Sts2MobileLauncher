@@ -10,9 +10,16 @@ internal fun Throwable.userVisibleDownloadFailureMessage(): String {
         }
         .toList()
 
-    return messages.lastOrNull(::isSteamAuthorizationFailure)
-        ?: messages.firstOrNull()
-        ?: (this::class.simpleName ?: "Download failed")
+    messages.lastOrNull(::isSteamAuthorizationFailure)?.let { return it }
+
+    val primary = messages.firstOrNull()
+        ?: return this::class.simpleName ?: "Download failed"
+    val detail = messages.lastOrNull()
+    return if (detail != null && detail != primary) {
+        "$primary: $detail"
+    } else {
+        primary
+    }
 }
 
 fun isSteamAuthorizationFailure(message: String?): Boolean {

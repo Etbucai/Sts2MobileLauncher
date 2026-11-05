@@ -188,8 +188,14 @@ class SpireSupplyStationClientTest {
             )
         val rejected =
             IOException("Failed to download chunk", IOException("Steam CDN request failed: 403"))
+        val network =
+            IOException(
+                "Unable to download UGC manifest",
+                IOException("Unable to connect to any Steam CM websocket"),
+            )
         assertTrue(isSteamAuthorizationFailure(noLicense.userVisibleDownloadFailureMessage()))
         assertTrue(isSteamAuthorizationFailure(rejected.userVisibleDownloadFailureMessage()))
+        assertEquals("Unable to download UGC manifest: Unable to connect to any Steam CM websocket", network.userVisibleDownloadFailureMessage())
         assertFalse(isSteamAuthorizationFailure("Permission denied writing MOD directory"))
         assertFalse(isSteamAuthorizationFailure("Network timeout"))
     }

@@ -202,7 +202,7 @@ internal class SteamCdnTransport(
             when {
                 response.isSuccessful -> return response.bytes
 
-                response.code == 403 && attempt == 0 &&
+                (response.code == 401 || response.code == 403) && attempt == 0 &&
                     (resolveRejectedAuthToken != null || resolveAuthToken != null) -> {
                     val rejectedToken = queryState.value
                     queryState.value = if (resolveRejectedAuthToken != null) {

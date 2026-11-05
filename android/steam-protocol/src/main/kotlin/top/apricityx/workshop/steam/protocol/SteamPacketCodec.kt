@@ -48,7 +48,13 @@ object SteamPacketCodec {
         return isProto(rawMessageId)
     }
 
-    fun buildWebSocketUri(endpoint: String): String = "wss://$endpoint/cmsocket/"
+    fun buildWebSocketUri(endpoint: String): String {
+        val parsed = java.net.URI.create("wss://${endpoint.trim()}")
+        val host = requireNotNull(parsed.host) { "Invalid Steam CM websocket endpoint: $endpoint" }
+        val listedPort = parsed.port.takeIf { it > 0 } ?: 443
+        val port = if (host.lowercase(java.util.Locale.ROOT).endsWith(".steamserver.net")) 443 else listedPort
+        return java.net.URI("wss", null, host, port, "/cmsocket/", null, null).toString()
+    }
 
     fun encode(
         emsg: Int,

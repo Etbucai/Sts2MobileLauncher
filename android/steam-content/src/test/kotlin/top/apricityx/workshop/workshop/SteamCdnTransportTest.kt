@@ -328,6 +328,38 @@ class SteamCdnTransportTest {
     }
 
     @Test
+    fun refreshesAuthTokenAfterUnauthorizedResponse() = runBlocking {
+        val queries = CopyOnWriteArrayList<String?>()
+        val calls = AtomicInteger()
+        val client = OkHttpClient.Builder()
+            .addInterceptor(
+                Interceptor { chain ->
+                    queries += chain.request().url.encodedQuery
+                    val call = calls.incrementAndGet()
+                    response(chain, if (call == 1) 401 else 200, if (call == 1) "" else "data")
+                },
+            )
+            .build()
+        var rejected: String? = null
+
+        val bytes = SteamCdnTransport(client).requestBytes(
+            server = server(host = "origin.example", type = "CDN"),
+            path = "chunk",
+            query = "old-token",
+            proxyServer = null,
+            expectedLength = 4L,
+            resolveRejectedAuthToken = { _, rejectedToken ->
+                rejected = rejectedToken
+                "new-token"
+            },
+        )
+
+        assertContentEquals("data".encodeToByteArray(), bytes)
+        assertEquals("old-token", rejected)
+        assertEquals(listOf<String?>("old-token", "new-token"), queries.toList())
+    }
+
+    @Test
     fun coroutineCancellationCancelsInFlightCall() = runBlocking {
         val entered = AtomicInteger()
         val client = OkHttpClient.Builder()
