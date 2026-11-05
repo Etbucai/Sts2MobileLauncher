@@ -87,6 +87,39 @@ public class SteamCloudEndpointTest {
         assertEndpoint(select(), "127.0.0.1", 443);
     }
 
+    @Test public void resolvedHostnameCandidateIsNotReplacedWithItsAddress() throws Exception {
+        serverList.updateServerList(List.of(ServerRecord.createServer("localhost", 27020, ProtocolTypes.WEB_SOCKET)));
+
+        ServerRecord selected = select();
+
+        assertEquals("localhost", selected.getEndpoint().getHostString());
+        assertEquals(27020, selected.getPort());
+    }
+
+    @Test public void persistedHostnameSurvivesClientRestart() throws Exception {
+        persist(ServerRecord.createServer("localhost", 27021, ProtocolTypes.WEB_SOCKET));
+        client.close();
+        client = new Sts2SteamCloudClient(RuntimeEnvironment.getApplication());
+        serverList.updateServerList(List.of(ServerRecord.createServer("127.0.0.1", 27017, ProtocolTypes.TCP)));
+
+        ServerRecord selected = select();
+
+        assertEquals("localhost", selected.getEndpoint().getHostString());
+        assertEquals(27021, selected.getPort());
+    }
+
+    @Test public void steamServerWebSocketUsesStandardTlsPort() throws Exception {
+        assertEquals(443, invokeStaticPortPreference("cmp1-tyo3.steamserver.net", 27020));
+        assertEquals(443, invokeStaticPortPreference("cmp1-tyo3.steamserver.net", 443));
+        assertEquals(27020, invokeStaticPortPreference("localhost", 27020));
+    }
+
+    private static int invokeStaticPortPreference(String host, int port) throws Exception {
+        Method method = Sts2SteamCloudClient.class.getDeclaredMethod("preferredWebSocketPort", String.class, int.class);
+        method.setAccessible(true);
+        return (int) method.invoke(null, host, port);
+    }
+
     private ServerRecord select() throws Exception {
         Object candidate = invoke("selectWebSocketServerRecord", new Class<?>[0]);
         Field record = candidate.getClass().getDeclaredField("serverRecord");

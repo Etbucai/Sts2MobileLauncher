@@ -16,7 +16,6 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
@@ -1073,7 +1072,6 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
             );
         }
 
-        IOException lastResolutionError = null;
         List<String> attemptedKeys = new ArrayList<>();
         for (PreparedServerRecord candidate : candidates) {
             String dedupeKey = buildServerRecordKey(candidate.serverRecord);
@@ -1081,23 +1079,7 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
                 continue;
             }
             attemptedKeys.add(dedupeKey);
-            try {
-                return materializeWebSocketServerRecord(candidate);
-            } catch (IOException error) {
-                lastResolutionError = error;
-                Log.w(
-                    TAG,
-                    "Skipping Steam websocket CM candidate source="
-                        + candidate.candidateSourceDescription
-                        + " because endpoint pre-resolution failed: "
-                        + sanitizeSingleLine(error.getMessage()),
-                    error
-                );
-            }
-        }
-
-        if (lastResolutionError != null) {
-            throw lastResolutionError;
+            return preserveWebSocketHostname(candidate);
         }
         return null;
     }
@@ -1117,7 +1099,7 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
         }
     }
 
-    private PreparedServerRecord materializeWebSocketServerRecord(PreparedServerRecord candidate) throws IOException {
+    private PreparedServerRecord preserveWebSocketHostname(PreparedServerRecord candidate) {
         ServerRecord serverRecord = candidate.serverRecord;
         if (serverRecord == null || serverRecord.getEndpoint() == null) {
             return candidate;
@@ -1128,41 +1110,22 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
 
         InetSocketAddress endpoint = serverRecord.getEndpoint();
         String host = sanitizeSingleLine(endpoint.getHostString());
-        int port = endpoint.getPort();
+        int listedPort = endpoint.getPort();
         if (isBlank(host)) {
             return candidate;
         }
-
-        InetAddress resolvedAddress = endpoint.getAddress();
-        if (resolvedAddress != null) {
-            String literalAddress = sanitizeSingleLine(resolvedAddress.getHostAddress());
-            if (!isBlank(literalAddress)) {
-                return new PreparedServerRecord(
-                    ServerRecord.createServer(literalAddress, port, ProtocolTypes.WEB_SOCKET),
-                    candidate.candidateSourceDescription + " (pre-resolved " + host + " -> " + literalAddress + ")"
-                );
-            }
-            return candidate;
-        }
-
-        if (isIpLiteral(host)) {
-            return candidate;
-        }
-
-        InetAddress[] addresses = InetAddress.getAllByName(host);
-        if (addresses == null || addresses.length == 0) {
-            throw new IOException("Failed to resolve Steam websocket CM hostname: " + host);
-        }
-        String preferredAddress = selectPreferredAddress(addresses);
-        if (isBlank(preferredAddress)) {
-            throw new IOException("Resolved Steam websocket CM hostname had no usable address: " + host);
-        }
-
-        Log.i(TAG, "Pre-resolved Steam websocket CM hostname " + host + " -> " + preferredAddress + '.');
         return new PreparedServerRecord(
-            ServerRecord.createServer(preferredAddress, port, ProtocolTypes.WEB_SOCKET),
-            candidate.candidateSourceDescription + " (pre-resolved " + host + " -> " + preferredAddress + ")"
+            ServerRecord.createServer(host, preferredWebSocketPort(host, listedPort), ProtocolTypes.WEB_SOCKET),
+            candidate.candidateSourceDescription + " (hostname preserved, standard WSS port preferred)"
         );
+    }
+
+    private static int preferredWebSocketPort(String host, int listedPort) {
+        String normalizedHost = sanitizeSingleLine(host).toLowerCase(Locale.ROOT);
+        if (listedPort != 443 && normalizedHost.endsWith(".steamserver.net")) {
+            return 443;
+        }
+        return listedPort;
     }
 
     private void persistResolvedWebSocketEndpoint(ServerRecord serverRecord) {
@@ -1174,9 +1137,6 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
             return;
         }
         String address = endpoint.getHostString();
-        if (endpoint.getAddress() != null && !isBlank(endpoint.getAddress().getHostAddress())) {
-            address = endpoint.getAddress().getHostAddress();
-        }
         address = formatHostPort(address, endpoint.getPort());
         try {
             writeTextFile(lastCmEndpointFile, address + "\n");
@@ -1405,48 +1365,12 @@ public final class Sts2SteamCloudClient implements AutoCloseable {
             + describeProtocolTypes(serverRecord.getProtocolTypes());
     }
 
-    private static String selectPreferredAddress(InetAddress[] addresses) {
-        if (addresses == null || addresses.length == 0) {
-            return "";
-        }
-        for (InetAddress address : addresses) {
-            String literal = address == null ? "" : sanitizeSingleLine(address.getHostAddress());
-            if (!isBlank(literal) && literal.indexOf(':') < 0) {
-                return literal;
-            }
-        }
-        for (InetAddress address : addresses) {
-            String literal = address == null ? "" : sanitizeSingleLine(address.getHostAddress());
-            if (!isBlank(literal)) {
-                return literal;
-            }
-        }
-        return "";
-    }
-
     private static String formatHostPort(String host, int port) {
         String sanitizedHost = sanitizeSingleLine(host);
         if (sanitizedHost.indexOf(':') >= 0 && !sanitizedHost.startsWith("[") && !sanitizedHost.endsWith("]")) {
             sanitizedHost = '[' + sanitizedHost + ']';
         }
         return sanitizedHost + ':' + port;
-    }
-
-    private static boolean isIpLiteral(String host) {
-        String value = sanitizeSingleLine(host);
-        if (value.isEmpty()) {
-            return false;
-        }
-        if (value.indexOf(':') >= 0) {
-            return true;
-        }
-        for (int index = 0; index < value.length(); index++) {
-            char c = value.charAt(index);
-            if ((c < '0' || c > '9') && c != '.') {
-                return false;
-            }
-        }
-        return true;
     }
 
     private boolean commitClientFileUpload(
