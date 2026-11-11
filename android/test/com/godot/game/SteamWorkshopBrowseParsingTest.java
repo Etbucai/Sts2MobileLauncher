@@ -77,6 +77,28 @@ public class SteamWorkshopBrowseParsingTest {
 		assertEquals("Legacy Author", item.getAuthorName());
 	}
 
+	@Test public void detailDescriptionIncludesContentAfterNestedDivs() throws Exception {
+		String html = "<div class=\"detailBox\">"
+			+ "<div id=\"highlightContent\" class=\"workshopItemDescription\">"
+			+ "<div class=\"bb_h1\">Main title</div>"
+			+ "<i>Introduction</i><br><br>"
+			+ "<div class=\"bb_h2\">First section</div>"
+			+ "First paragraph &amp; details."
+			+ "<div class=\"bb_h2\">Second section</div>"
+			+ "<ul><li>Final item</li></ul>"
+			+ "</div></div>";
+
+		String description = extractDescription(html);
+
+		assertTrue(description.contains("Main title"));
+		assertTrue(description.contains("Introduction"));
+		assertTrue(description.contains("First section"));
+		assertTrue(description.contains("First paragraph & details."));
+		assertTrue(description.contains("Second section"));
+		assertTrue(description.contains("Final item"));
+		assertTrue(description.indexOf("Final item") > description.indexOf("Main title"));
+	}
+
 	private static JSONArray items() throws Exception {
 		return new JSONArray().put(new JSONObject()
 			.put("publishedfileid", "18446744073709551615")
@@ -120,6 +142,13 @@ public class SteamWorkshopBrowseParsingTest {
 		Method method = SteamWorkshopCatalog.class.getDeclaredMethod("parsePublicBrowsePage", String.class, int.class, int.class);
 		method.setAccessible(true);
 		return method.invoke(catalog, html, 1, 20);
+	}
+
+	private static String extractDescription(String html) throws Exception {
+		SteamWorkshopCatalog catalog = new SteamWorkshopCatalog(RuntimeEnvironment.getApplication());
+		Method method = SteamWorkshopCatalog.class.getDeclaredMethod("extractDescription", String.class);
+		method.setAccessible(true);
+		return (String) method.invoke(catalog, html);
 	}
 
 	@SuppressWarnings("unchecked")

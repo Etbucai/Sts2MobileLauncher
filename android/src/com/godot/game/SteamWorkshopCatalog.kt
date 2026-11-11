@@ -695,10 +695,8 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
     }
 
     private fun extractDescription(payload: String): String =
-        workshopDescriptionRegex.find(payload)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.let(::stripTagsAndDecode)
+        extractDivInnerHtmlById(payload, "highlightContent")
+            ?.let(::decodeDescription)
             .orEmpty()
 
     private fun extractScreenshotUrls(payload: String): List<String> {
@@ -921,6 +919,15 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
             .replace(Regex("\\s+"), " ")
             .trim()
 
+    private fun decodeDescription(value: String): String =
+        Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY)
+            .toString()
+            .replace('\u00a0', ' ')
+            .replace(Regex("[\\t\\u000B\\f\\r ]+"), " ")
+            .replace(Regex(" *\\n *"), "\n")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+
     private fun decodeHtml(value: String): String =
         Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString().trim()
 
@@ -1015,10 +1022,6 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
         val ssrRenderContextRegex = Regex(
             """window\.SSR\.renderContext=JSON\.parse\("(.+?)"\);""",
             setOf(RegexOption.DOT_MATCHES_ALL),
-        )
-        val workshopDescriptionRegex = Regex(
-            """<div\b[^>]*class="workshopItemDescription"[^>]*id="highlightContent"[^>]*>(.*?)</div>""",
-            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
         )
         val enlargedImageRegex = Regex(
             """ShowEnlargedImagePreview\(\s*'([^']+)'\s*\).*?<img\b[^>]*\bsrc="([^"]+)"""",
