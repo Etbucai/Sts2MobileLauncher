@@ -325,11 +325,7 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
 
     fun loadDetail(item: Item): Detail {
         val apiItem = loadDetails(listOf(item.publishedFileId))[item.publishedFileId] ?: item
-        val mergedItem = apiItem.copy(
-            authorName = apiItem.authorName.ifBlank { item.authorName },
-            description = apiItem.description.ifBlank { item.description },
-            previewUrl = apiItem.previewUrl.ifBlank { item.previewUrl },
-        )
+        val mergedItem = mergeLocalizedItem(item, apiItem)
         val communityDetail = runCatching { loadCommunityDetail(mergedItem) }.getOrDefault(CommunityDetail())
         val description = communityDetail.description.ifBlank {
             mergedItem.description.ifBlank { item.description }
@@ -574,20 +570,23 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
         }
         return items.map { item ->
             val detail = details[item.publishedFileId] ?: return@map item
-            item.copy(
-                appId = if (detail.appId > 0) detail.appId else item.appId,
-                title = detail.title.ifBlank { item.title },
-                authorName = detail.authorName.ifBlank { item.authorName },
-                description = detail.description.ifBlank { item.description },
-                previewUrl = detail.previewUrl.ifBlank { item.previewUrl },
-                creatorSteamId = if (detail.creatorSteamId > 0L) detail.creatorSteamId else item.creatorSteamId,
-                fileSizeBytes = if (detail.fileSizeBytes > 0L) detail.fileSizeBytes else item.fileSizeBytes,
-                subscriptions = if (detail.subscriptions > 0) detail.subscriptions else item.subscriptions,
-                views = if (detail.views > 0) detail.views else item.views,
-                timeUpdatedEpochSeconds = if (detail.timeUpdatedEpochSeconds > 0L) detail.timeUpdatedEpochSeconds else item.timeUpdatedEpochSeconds,
-            )
+            mergeLocalizedItem(item, detail)
         }
     }
+
+    private fun mergeLocalizedItem(localized: Item, detail: Item): Item =
+        localized.copy(
+            appId = if (detail.appId > 0) detail.appId else localized.appId,
+            title = localized.title.ifBlank { detail.title },
+            authorName = localized.authorName.ifBlank { detail.authorName },
+            description = localized.description.ifBlank { detail.description },
+            previewUrl = detail.previewUrl.ifBlank { localized.previewUrl },
+            creatorSteamId = if (detail.creatorSteamId > 0L) detail.creatorSteamId else localized.creatorSteamId,
+            fileSizeBytes = if (detail.fileSizeBytes > 0L) detail.fileSizeBytes else localized.fileSizeBytes,
+            subscriptions = if (detail.subscriptions > 0) detail.subscriptions else localized.subscriptions,
+            views = if (detail.views > 0) detail.views else localized.views,
+            timeUpdatedEpochSeconds = if (detail.timeUpdatedEpochSeconds > 0L) detail.timeUpdatedEpochSeconds else localized.timeUpdatedEpochSeconds,
+        )
 
     private fun SteamPublishedFileQueryResult.toSearchResult(page: Int): SearchResult =
         SearchResult(
@@ -854,7 +853,7 @@ class SteamWorkshopCatalog(private val context: android.content.Context) {
             RequiredItem(
                 appId = detail?.appId?.takeIf { it > 0 } ?: fallbackAppId,
                 publishedFileId = item.publishedFileId,
-                title = detail?.title?.ifBlank { item.title } ?: item.title,
+                title = item.title.ifBlank { detail?.title.orEmpty() },
                 description = detail?.description.orEmpty(),
                 previewUrl = detail?.previewUrl.orEmpty(),
                 creatorSteamId = detail?.creatorSteamId ?: 0L,

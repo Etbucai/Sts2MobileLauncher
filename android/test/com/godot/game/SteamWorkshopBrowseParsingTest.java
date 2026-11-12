@@ -99,6 +99,44 @@ public class SteamWorkshopBrowseParsingTest {
 		assertTrue(description.indexOf("Final item") > description.indexOf("Main title"));
 	}
 
+	@Test public void detailEnrichmentPreservesLocalizedTitleAndDescription() throws Exception {
+		SteamWorkshopCatalog.Item localized = item("海克斯大乱斗", "中文简介", "", 0L, 0, 0);
+		SteamWorkshopCatalog.Item detail = item(
+			"ARAM: Mayhem",
+			"[h1] Supported Languages [/h1]",
+			"https://images.steamusercontent.com/detail.png",
+			26405275L,
+			468389,
+			691565
+		);
+
+		SteamWorkshopCatalog.Item merged = mergeLocalizedItem(localized, detail);
+
+		assertEquals("海克斯大乱斗", merged.getTitle());
+		assertEquals("中文简介", merged.getDescription());
+		assertEquals("https://images.steamusercontent.com/detail.png", merged.getPreviewUrl());
+		assertEquals(26405275L, merged.getFileSizeBytes());
+		assertEquals(468389, merged.getSubscriptions());
+		assertEquals(691565, merged.getViews());
+	}
+
+	@Test public void detailEnrichmentFallsBackWhenLocalizedTextIsEmpty() throws Exception {
+		SteamWorkshopCatalog.Item localized = item("", "", "", 0L, 0, 0);
+		SteamWorkshopCatalog.Item detail = item(
+			"ARAM: Mayhem",
+			"English description",
+			"https://images.steamusercontent.com/detail.png",
+			26405275L,
+			468389,
+			691565
+		);
+
+		SteamWorkshopCatalog.Item merged = mergeLocalizedItem(localized, detail);
+
+		assertEquals("ARAM: Mayhem", merged.getTitle());
+		assertEquals("English description", merged.getDescription());
+	}
+
 	private static JSONArray items() throws Exception {
 		return new JSONArray().put(new JSONObject()
 			.put("publishedfileid", "18446744073709551615")
@@ -149,6 +187,43 @@ public class SteamWorkshopBrowseParsingTest {
 		Method method = SteamWorkshopCatalog.class.getDeclaredMethod("extractDescription", String.class);
 		method.setAccessible(true);
 		return (String) method.invoke(catalog, html);
+	}
+
+	private static SteamWorkshopCatalog.Item mergeLocalizedItem(
+		SteamWorkshopCatalog.Item localized,
+		SteamWorkshopCatalog.Item detail
+	) throws Exception {
+		SteamWorkshopCatalog catalog = new SteamWorkshopCatalog(RuntimeEnvironment.getApplication());
+		Method method = SteamWorkshopCatalog.class.getDeclaredMethod(
+			"mergeLocalizedItem",
+			SteamWorkshopCatalog.Item.class,
+			SteamWorkshopCatalog.Item.class
+		);
+		method.setAccessible(true);
+		return (SteamWorkshopCatalog.Item) method.invoke(catalog, localized, detail);
+	}
+
+	private static SteamWorkshopCatalog.Item item(
+		String title,
+		String description,
+		String previewUrl,
+		long fileSizeBytes,
+		int subscriptions,
+		int views
+	) {
+		return new SteamWorkshopCatalog.Item(
+			2868840,
+			"3747501308",
+			title,
+			"",
+			description,
+			previewUrl,
+			76561198000000001L,
+			fileSizeBytes,
+			subscriptions,
+			views,
+			1791348800L
+		);
 	}
 
 	@SuppressWarnings("unchecked")
