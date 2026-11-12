@@ -45,6 +45,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import com.godot.game.steam.auth.SteamAuthStore;
+import com.godot.game.steam.auth.SteamLoginCoordinator;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -1987,11 +1988,15 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 		MaterialButton openSteam = ExtraSettingsUi.filledButton(this, R.string.steam_account_open, R.drawable.ic_steam_24);
 		MaterialButton verify = ExtraSettingsUi.outlineButton(this, R.string.steam_verify_login, R.drawable.ic_check_circle_24);
 		openSteam.setOnClickListener(v -> startActivity(new Intent(this, SteamAccountActivity.class)));
-		verify.setOnClickListener(v -> {
-			refreshSteamStatus();
-			showMessage(getString(R.string.workshop_steam_status_refreshed));
-			showSettings();
-		});
+		verify.setOnClickListener(v -> runOperation(
+			getString(R.string.steam_status_verifying),
+			() -> SteamLoginCoordinator.verifyRefreshToken(this),
+			steamId -> {
+				refreshSteamStatus();
+				showSettings();
+				showMessage(getString(R.string.steam_status_verified, steamId));
+			}
+		));
 		row.addView(openSteam, weightedButtonParams(0));
 		row.addView(verify, weightedButtonParams(10));
 		content.addView(row, fullWidthTopMargin(12));
