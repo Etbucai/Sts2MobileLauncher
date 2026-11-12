@@ -232,7 +232,7 @@ class SteamDepotDirectoryDownloader(
         waitIfPaused: suspend () -> Unit,
     ): DepotManifest {
         var lastError: Throwable? = null
-        for (server in distinctPhysicalServers(contentServers)) {
+        for (server in SteamChunkDownloadPolicy.distinctPhysicalServers(contentServers)) {
             waitIfPaused()
             try {
                 val bytes = requestBytes(
@@ -334,7 +334,7 @@ class SteamDepotDirectoryDownloader(
                     PlannedChunk(
                         chunk = group.chunk,
                         destinations = group.destinations.toList(),
-                        estimatedBytes = estimatedChunkMemoryBytes(group.chunk),
+                        estimatedBytes = SteamChunkDownloadPolicy.estimatedMemoryBytes(group.chunk),
                         progressBytes = group.pendingProgressBytes,
                     )
                 }
@@ -355,13 +355,13 @@ class SteamDepotDirectoryDownloader(
             )
 
             if (plannedChunks.isNotEmpty()) {
-                val workerCount = maxConcurrentChunks.coerceIn(1, MAX_CONCURRENT_CHUNKS)
+                val workerCount = SteamChunkDownloadPolicy.workerCount(maxConcurrentChunks, plannedChunks.size)
                 runBoundedChunkPipeline(
                         plannedChunks = plannedChunks,
                         options = BoundedChunkPipelineOptions(
                             workerCount = workerCount,
                             resultBufferCapacity = if (workerCount > 1) 1 else 0,
-                            maxEstimatedBytesInFlight = chunkMemoryBudgetBytes(),
+                            maxEstimatedBytesInFlight = SteamChunkDownloadPolicy.memoryBudgetBytes(),
                         ),
                         fetch = { plan ->
                             waitIfPaused()
@@ -496,42 +496,25 @@ class SteamDepotDirectoryDownloader(
         chunk: ManifestChunk,
         waitIfPaused: suspend () -> Unit,
     ): ByteArray {
-        var lastError: Throwable? = null
-        if (contentServers.isEmpty()) {
-            throw WorkshopDownloadException("No distinct Steam CDN server is available")
+        return SteamChunkDownloadPolicy.downloadWithRetries(
+            chunkKey = chunk.idHex,
+            weightedServers = contentServers,
+            waitIfPaused = waitIfPaused,
+        ) { server ->
+            val raw = requestBytes(
+                server = server,
+                proxyServer = proxyServer,
+                path = "depot/$depotId/chunk/${chunk.idHex}",
+                query = cdnAuthTokenCache.cached(server.host),
+                appId = appId,
+                depotId = depotId,
+                contentClient = contentClient,
+                cdnTransport = cdnTransport,
+                cdnAuthTokenCache = cdnAuthTokenCache,
+                expectedLength = chunk.compressedLength.toLong().takeIf { it > 0L },
+            )
+            ChunkProcessor.process(raw, chunk, depotKey)
         }
-        val weightedOffset = (chunk.idHex.hashCode() and Int.MAX_VALUE) % contentServers.size
-        val servers = distinctPhysicalServers(rotateServers(contentServers, weightedOffset))
-        for (attempt in 1..MAX_CHUNK_DOWNLOAD_ATTEMPTS) {
-            currentCoroutineContext().ensureActive()
-            waitIfPaused()
-            for (server in rotateServers(servers, attempt - 1).take(MAX_CHUNK_SERVER_CANDIDATES)) {
-                currentCoroutineContext().ensureActive()
-                waitIfPaused()
-                try {
-                    val raw = requestBytes(
-                        server = server,
-                        proxyServer = proxyServer,
-                        path = "depot/$depotId/chunk/${chunk.idHex}",
-                        query = cdnAuthTokenCache.cached(server.host),
-                        appId = appId,
-                        depotId = depotId,
-                        contentClient = contentClient,
-                        cdnTransport = cdnTransport,
-                        cdnAuthTokenCache = cdnAuthTokenCache,
-                        expectedLength = chunk.compressedLength.toLong().takeIf { it > 0L },
-                    )
-                    return ChunkProcessor.process(raw, chunk, depotKey)
-                } catch (error: Throwable) {
-                    rethrowCancellation(error)
-                    lastError = error
-                }
-            }
-            if (attempt < MAX_CHUNK_DOWNLOAD_ATTEMPTS) {
-                delay(CHUNK_RETRY_DELAY_MILLIS * attempt)
-            }
-        }
-        throw WorkshopDownloadException("Failed to download chunk ${chunk.idHex}: ${describeThrowable(lastError)}", lastError)
     }
 
     private suspend fun requestBytes(
@@ -646,17 +629,6 @@ class SteamDepotDirectoryDownloader(
         }
     }
 
-    private fun estimatedChunkMemoryBytes(chunk: ManifestChunk): Long {
-        val compressed = chunk.compressedLength.coerceAtLeast(0).toLong()
-        val uncompressed = chunk.uncompressedLength.coerceAtLeast(0).toLong()
-        return (compressed + uncompressed) * CHUNK_MEMORY_ESTIMATE_MULTIPLIER
-    }
-
-    private fun chunkMemoryBudgetBytes(): Long {
-        val adaptive = Runtime.getRuntime().maxMemory() / CHUNK_MEMORY_HEAP_DIVISOR
-        return adaptive.coerceIn(MIN_CHUNK_MEMORY_BUDGET_BYTES, MAX_CHUNK_MEMORY_BUDGET_BYTES)
-    }
-
     private suspend fun <T> withCancellationPolling(
         waitIfPaused: suspend () -> Unit,
         block: suspend () -> T,
@@ -674,9 +646,6 @@ class SteamDepotDirectoryDownloader(
             monitor.cancel()
         }
     }
-
-    private fun distinctPhysicalServers(servers: List<CdnServer>): List<CdnServer> =
-        servers.distinctBy { it.host.trim().lowercase(Locale.ROOT) }
 
     private fun saturatingAddDownloadBytes(left: Long, right: Long): Long =
         if (right > 0L && left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
@@ -777,11 +746,6 @@ class SteamDepotDirectoryDownloader(
         }
     }
 
-    private fun rotateServers(servers: List<CdnServer>, offset: Int): List<CdnServer> {
-        if (servers.isEmpty()) return emptyList()
-        return List(servers.size) { index -> servers[(index + offset) % servers.size] }
-    }
-
     private fun resolveSafeOutputFile(root: File, rawPath: String): File {
         val normalized = rawPath.replace('\\', '/').trim().trimStart('/')
         if (normalized.isBlank() || normalized == "." || normalized == ".." || normalized.contains(':')) {
@@ -829,16 +793,8 @@ class SteamDepotDirectoryDownloader(
     }
 
     private companion object {
-        private const val MAX_CHUNK_DOWNLOAD_ATTEMPTS = 3
-        private const val MAX_CHUNK_SERVER_CANDIDATES = 8
-        private const val MAX_CONCURRENT_CHUNKS = 8
         private const val MAX_OPEN_OUTPUT_FILES = 8
-        private const val CHUNK_RETRY_DELAY_MILLIS = 750L
         private const val CANCELLATION_POLL_MILLIS = 150L
-        private const val CHUNK_MEMORY_HEAP_DIVISOR = 12L
-        private const val CHUNK_MEMORY_ESTIMATE_MULTIPLIER = 2L
-        private const val MIN_CHUNK_MEMORY_BUDGET_BYTES = 16L * 1024L * 1024L
-        private const val MAX_CHUNK_MEMORY_BUDGET_BYTES = 64L * 1024L * 1024L
         private const val PART_FILE_SUFFIX = ".steam.part"
     }
 }

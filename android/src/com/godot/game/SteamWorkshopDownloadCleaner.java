@@ -6,6 +6,8 @@ import android.util.Log;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class SteamWorkshopDownloadCleaner {
@@ -13,6 +15,7 @@ final class SteamWorkshopDownloadCleaner {
 	private static final String PREFERENCES_NAME = "sts2_steam_workshop_cleanup";
 	private static final String KEY_LAST_DAILY_CLEANUP_AT_MS = "last_daily_cleanup_at_ms";
 	private static final long DAILY_CLEANUP_INTERVAL_MS = 24L * 60L * 60L * 1000L;
+	private static final long ACTIVE_LEASE_MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L;
 	private static final AtomicBoolean dailyCleanupRunning = new AtomicBoolean(false);
 
 	private SteamWorkshopDownloadCleaner() {
@@ -63,6 +66,21 @@ final class SteamWorkshopDownloadCleaner {
 		}
 	}
 
+	static void deleteTaskDownloadDirectory(Context context, String resumeDirectoryId) throws IOException {
+		if (context == null || !SteamWorkshopTaskHistory.isSafeResumeDirectoryId(resumeDirectoryId)) {
+			return;
+		}
+		File downloadsRoot = getDownloadsRoot(context.getApplicationContext());
+		File outputDir = new File(downloadsRoot, resumeDirectoryId);
+		if (!outputDir.exists() && !isSymbolicLink(outputDir)) {
+			return;
+		}
+		if (!isDirectDownloadEntry(downloadsRoot, outputDir)) {
+			throw new IOException("Refusing to delete invalid Workshop resume directory: " + outputDir.getAbsolutePath());
+		}
+		deleteRecursively(outputDir, downloadsRoot);
+	}
+
 	private static void cleanupDownloadsDirectory(Context context) throws IOException {
 		File downloadsRoot = getDownloadsRoot(context);
 		if (!downloadsRoot.isDirectory()) {
@@ -72,8 +90,15 @@ final class SteamWorkshopDownloadCleaner {
 		if (children == null) {
 			return;
 		}
+		Set<String> protectedDirectoryIds = new HashSet<>(
+			new SteamWorkshopTaskHistory(context).listProtectedResumeDirectoryIds()
+		);
+		long now = System.currentTimeMillis();
 		for (File child : children) {
 			try {
+				if (protectedDirectoryIds.contains(child.getName()) || hasCurrentActiveLease(child, now)) {
+					continue;
+				}
 				if (isDirectDownloadEntry(downloadsRoot, child)) {
 					deleteRecursively(child, downloadsRoot);
 				}
@@ -81,6 +106,15 @@ final class SteamWorkshopDownloadCleaner {
 				Log.w(TAG, "Unable to delete Steam Workshop download entry: " + child.getAbsolutePath(), exception);
 			}
 		}
+	}
+
+	private static boolean hasCurrentActiveLease(File directory, long now) {
+		File marker = new File(directory, SteamWorkshopDownloader.ACTIVE_DOWNLOAD_MARKER);
+		if (!marker.isFile()) {
+			return false;
+		}
+		long modifiedAtMs = marker.lastModified();
+		return modifiedAtMs > 0L && (now < modifiedAtMs || now - modifiedAtMs < ACTIVE_LEASE_MAX_AGE_MS);
 	}
 
 	private static File getDownloadsRoot(Context context) {

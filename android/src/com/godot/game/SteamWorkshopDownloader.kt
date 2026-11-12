@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import top.apricityx.workshop.workshop.SpireSupplyStationClient
 import kotlinx.coroutines.runBlocking
+import okhttp3.Dispatcher
 import okhttp3.Protocol
 import kotlinx.serialization.json.Json
 import top.apricityx.workshop.steam.protocol.SteamAccountSession
@@ -149,51 +150,73 @@ class SteamWorkshopDownloader(private val context: Context) {
         selectedOption: BranchOption?,
         listener: ((Progress) -> Unit)? = null,
         cancellationToken: CancellationToken? = null,
+    ): Result = downloadResumable(item, selectedOption, null, null, listener, cancellationToken)
+
+    fun downloadResumable(
+        item: SteamWorkshopCatalog.Item,
+        selectedOption: BranchOption?,
+        resumeDirectoryId: String?,
+        directoryListener: ((String) -> Unit)? = null,
+        listener: ((Progress) -> Unit)? = null,
+        cancellationToken: CancellationToken? = null,
     ): Result = runBlocking {
         val appContext = context.applicationContext
         val useSupplyStation = selectedOption?.source == SpireSupplyStationClient.SOURCE ||
             (selectedOption == null && SteamWorkshopPreferences.isSupplyStationEnabled(appContext))
         cancellationToken?.bind(currentCoroutineContext()[Job])
         val identity = SteamClientIdentity(appContext)
-        val client = createWorkshopNetworkClient(appContext)
+        val concurrentChunks = SteamWorkshopPreferences.getConcurrentChunks(appContext)
+        val client = createWorkshopNetworkClient(appContext, concurrentChunks)
         cancellationToken?.throwIfCancelled()
         val account = if (useSupplyStation) null else createAccountSession(appContext, identity)
-        val outputDir = prepareOutputDir(appContext, item.publishedFileId.toString())
-        val engine = WorkshopDownloadEngine.createDefault(
-            client = client,
-            sessionFactory = { identity.createSession(client) },
-            sessionConnector = { session, servers ->
-                if (account != null && account.steamId > 0L) {
-                    session.connectWithRefreshToken(servers, account)
-                } else {
-                    session.connectAnonymous(servers)
-                }
-            },
-            maxConcurrentChunks = SteamWorkshopPreferences.getConcurrentChunks(appContext),
-            allowPublicCdnFallbackOnSessionFailure = true,
-            publishedFileLanguage = "schinese",
+        val outputDir = prepareOutputDir(
+            appContext,
+            item.publishedFileId.toString(),
+            resumeDirectoryId,
         )
-        val selectedVariant = selectedOption?.toResolvedVariant()
-        val branch = if (useSupplyStation) SpireSupplyStationClient.BRANCH else
-            normalizeWorkshopBranch(selectedOption?.branch ?: selectedVariant?.branch ?: "public")
-        var resolvedResolution: WorkshopItemResolution? = null
-        var sawDeterminateProgress = false
-        var lastPercent = 0
-        var lastMessage = "Resolving workshop item ($branch)..."
-        emit(listener, Progress(0, lastMessage, indeterminate = true))
-        engine.download(
-            WorkshopDownloadRequest(
-                appId = resolveAppId(item),
-                publishedFileId = item.publishedFileId.toULongOrNull()
-                    ?: throw IOException("Invalid Steam Workshop file id: ${item.publishedFileId}"),
-                outputDir = outputDir,
-                branch = branch,
-                selectedVariant = selectedVariant,
-                useSupplyStation = useSupplyStation,
-            ),
-        ).collect { event ->
-            cancellationToken?.throwIfCancelled()
-            when (event) {
+        val activeMarker = File(outputDir, ACTIVE_DOWNLOAD_MARKER)
+        if (!activeMarker.exists() && !activeMarker.createNewFile()) {
+            throw IOException("Unable to create workshop download lease: ${activeMarker.absolutePath}")
+        }
+        activeMarker.setLastModified(System.currentTimeMillis())
+        directoryListener?.invoke(outputDir.name)
+        try {
+            val engine = WorkshopDownloadEngine.createDefault(
+                client = client,
+                sessionFactory = { identity.createSession(client) },
+                sessionConnector = { session, servers ->
+                    if (account != null && account.steamId > 0L) {
+                        session.connectWithRefreshToken(servers, account)
+                    } else {
+                        session.connectAnonymous(servers)
+                    }
+                },
+                maxConcurrentChunks = concurrentChunks,
+                allowPublicCdnFallbackOnSessionFailure = true,
+                publishedFileLanguage = "schinese",
+            )
+            val selectedVariant = selectedOption?.toResolvedVariant()
+            val branch = if (useSupplyStation) SpireSupplyStationClient.BRANCH else
+                normalizeWorkshopBranch(selectedOption?.branch ?: selectedVariant?.branch ?: "public")
+            var resolvedResolution: WorkshopItemResolution? = null
+            var sawDeterminateProgress = false
+            var lastPercent = 0
+            var lastMessage = "Resolving workshop item ($branch)..."
+            emit(listener, Progress(0, lastMessage, indeterminate = true))
+            engine.download(
+                WorkshopDownloadRequest(
+                    appId = resolveAppId(item),
+                    publishedFileId = item.publishedFileId.toULongOrNull()
+                        ?: throw IOException("Invalid Steam Workshop file id: ${item.publishedFileId}"),
+                    outputDir = outputDir,
+                    branch = branch,
+                    selectedVariant = selectedVariant,
+                    useSupplyStation = useSupplyStation,
+                ),
+            ).collect { event ->
+                cancellationToken?.throwIfCancelled()
+                activeMarker.setLastModified(System.currentTimeMillis())
+                when (event) {
                 is DownloadEvent.StateChanged -> {
                     lastMessage = stateLabel(event.state)
                     val pendingState = isPendingDownloadState(event.state)
@@ -236,20 +259,23 @@ class SteamWorkshopDownloader(private val context: Context) {
                     throw IOException(event.message)
                 }
                 is DownloadEvent.LogAppended -> Unit
+                }
             }
+            val finalResolution = resolvedResolution
+            Result(
+                item = item,
+                outputDir = outputDir,
+                branch = branch,
+                manifestId = finalResolution?.manifestId?.toString() ?: selectedOption?.manifestId.orEmpty(),
+                depotId = finalResolution?.depotId?.toString() ?: selectedOption?.depotId.orEmpty(),
+                resolutionSource = finalResolution?.source ?: selectedOption?.source.orEmpty(),
+                fallbackReason = finalResolution?.fallbackReason ?: selectedOption?.fallbackReason.orEmpty(),
+                matchedBranchMin = finalResolution?.matchedBranchMin ?: selectedOption?.matchedBranchMin.orEmpty(),
+                matchedBranchMax = finalResolution?.matchedBranchMax ?: selectedOption?.matchedBranchMax.orEmpty(),
+            )
+        } finally {
+            activeMarker.delete()
         }
-        val finalResolution = resolvedResolution
-        Result(
-            item = item,
-            outputDir = outputDir,
-            branch = branch,
-            manifestId = finalResolution?.manifestId?.toString() ?: selectedOption?.manifestId.orEmpty(),
-            depotId = finalResolution?.depotId?.toString() ?: selectedOption?.depotId.orEmpty(),
-            resolutionSource = finalResolution?.source ?: selectedOption?.source.orEmpty(),
-            fallbackReason = finalResolution?.fallbackReason ?: selectedOption?.fallbackReason.orEmpty(),
-            matchedBranchMin = finalResolution?.matchedBranchMin ?: selectedOption?.matchedBranchMin.orEmpty(),
-            matchedBranchMax = finalResolution?.matchedBranchMax ?: selectedOption?.matchedBranchMax.orEmpty(),
-        )
     }
 
     private fun buildProgressLabel(event: DownloadEvent.Progress, fallback: String): String {
@@ -438,17 +464,40 @@ class SteamWorkshopDownloader(private val context: Context) {
         )
     }
 
-    private fun prepareOutputDir(context: Context, publishedFileId: String): File {
+    private fun prepareOutputDir(
+        context: Context,
+        publishedFileId: String,
+        resumeDirectoryId: String?,
+    ): File {
         val root = File(File(context.filesDir, "workshop"), "downloads")
         if (!root.isDirectory && !root.mkdirs()) {
             throw IOException("Unable to create workshop downloads directory: ${root.absolutePath}")
         }
-        return File(root, "$publishedFileId-${UUID.randomUUID()}").also { dir ->
+        val directoryId = resumeDirectoryId?.trim().orEmpty().ifBlank {
+            "$publishedFileId-${UUID.randomUUID()}"
+        }
+        if (!isSafeResumeDirectoryId(directoryId) || !directoryId.startsWith("$publishedFileId-")) {
+            throw IOException("Invalid workshop resume directory id.")
+        }
+        val dir = File(root, directoryId)
+        if (dir.parentFile?.canonicalFile != root.canonicalFile || dir.canonicalFile != dir.absoluteFile) {
+            throw IOException("Workshop resume directory must be a direct, non-symbolic child of the downloads root.")
+        }
+        if (dir.exists()) {
+            if (!dir.isDirectory) {
+                throw IOException("Workshop resume path is not a directory: ${dir.absolutePath}")
+            }
+        } else {
             if (!dir.mkdirs()) {
                 throw IOException("Unable to create workshop output directory: ${dir.absolutePath}")
             }
         }
+        return dir
     }
+
+    private fun isSafeResumeDirectoryId(value: String): Boolean =
+        value.length in 1..MAX_RESUME_DIRECTORY_ID_LENGTH &&
+            value.all { it.isLetterOrDigit() || it == '.' || it == '_' || it == '-' }
 
     private fun authSteamIdOrZero(context: Context): Long =
         SteamAuthStore.readSnapshot(context).steamId64.trim().toLongOrNull() ?: 0L
@@ -463,8 +512,17 @@ class SteamWorkshopDownloader(private val context: Context) {
         }.getOrDefault(0L)
     }
 
-    private fun createWorkshopNetworkClient(context: Context) =
+    private fun createWorkshopNetworkClient(
+        context: Context,
+        maxConcurrentChunks: Int = SteamWorkshopPreferences.getConcurrentChunks(context),
+    ) =
         SteamWorkshopDirectAccess.buildClient(context) {
+            dispatcher(
+                Dispatcher().apply {
+                    maxRequests = MAX_HTTP_REQUESTS
+                    maxRequestsPerHost = maxConcurrentChunks.coerceIn(1, MAX_CONCURRENT_CHUNKS)
+                },
+            )
             connectTimeout(WORKSHOP_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             readTimeout(WORKSHOP_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             writeTimeout(WORKSHOP_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -484,6 +542,10 @@ class SteamWorkshopDownloader(private val context: Context) {
         private const val WORKSHOP_READ_TIMEOUT_SECONDS = 75L
         private const val WORKSHOP_WRITE_TIMEOUT_SECONDS = 75L
         private const val WORKSHOP_CALL_TIMEOUT_SECONDS = 120L
+        private const val MAX_HTTP_REQUESTS = 64
+        private const val MAX_CONCURRENT_CHUNKS = 8
+        private const val MAX_RESUME_DIRECTORY_ID_LENGTH = 160
+        const val ACTIVE_DOWNLOAD_MARKER = ".workshop-download-active"
 
         private const val SOURCE_AUTHOR_SNAPSHOT = "cm_get_item_info_author_snapshot"
         private const val SOURCE_CHANGE_HISTORY_SNAPSHOT = "cm_get_change_history_snapshot"

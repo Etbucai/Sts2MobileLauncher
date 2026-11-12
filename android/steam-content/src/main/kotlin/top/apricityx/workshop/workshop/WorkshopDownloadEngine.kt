@@ -135,7 +135,13 @@ private fun discoverFiles(root: File): List<DownloadedFileInfo> {
 
     return root.walkTopDown()
         .filter { it.isFile }
-        .filterNot { it.name == "metadata.json" || it.name == "download.log" || it.extension == "tmp" || it.extension == "part" }
+        .filterNot {
+            it.name == "metadata.json" ||
+                it.name == "download.log" ||
+                it.name == ".workshop-download-active" ||
+                it.extension == "tmp" ||
+                it.extension == "part"
+        }
         .filterNot { it.toRelativeString(root).startsWith(".chunks") }
         .map {
             DownloadedFileInfo(

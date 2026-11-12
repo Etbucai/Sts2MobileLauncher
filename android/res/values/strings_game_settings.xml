@@ -152,8 +152,8 @@
     <string name="workshop_update_summary">Workshop update check: %1$d update(s), %2$d current, %3$d failed.</string>
     <string name="workshop_menu">Menu</string>
     <string name="workshop_detail_title">Workshop details</string>
-    <string name="workshop_downloads_title">Downloads</string>
-    <string name="workshop_downloads_subtitle">Tracked Workshop installs for the current MOD folder.</string>
+    <string name="workshop_downloads_title">Download tasks</string>
+    <string name="workshop_downloads_subtitle">Workshop download history for the current MOD folder.</string>
     <string name="workshop_downloading_section">Downloading</string>
     <string name="workshop_downloaded_section">Downloaded</string>
     <string name="workshop_update_all">Update all (%1$d)</string>
@@ -173,6 +173,15 @@
     <string name="workshop_importing_status">Importing…</string>
     <string name="workshop_download_background_started">Downloading in background: %1$s</string>
     <string name="workshop_download_cancelled">Workshop download stopped.</string>
+    <string name="workshop_download_stopped_at">Stopped %1$s</string>
+    <string name="workshop_download_stopped_resume_hint">Download stopped. Retry to continue from verified chunks.</string>
+    <string name="workshop_download_failed_at">Download failed · ended %1$s</string>
+    <string name="workshop_failed_update_kept_installed">The update download failed. The currently installed MOD is unchanged.</string>
+    <string name="workshop_retry_download">Retry download</string>
+    <string name="workshop_failure_details">Failure details</string>
+    <string name="workshop_failure_details_message">Ended: %1$s\nBranch: %2$s\n\n%3$s</string>
+    <string name="workshop_delete_failed_task_title">Delete failed task</string>
+    <string name="workshop_delete_failed_task_message">Delete the download task for “%1$s” and its resumable data?</string>
     <string name="workshop_branch_dialog_title">Choose Workshop content</string>
     <string name="workshop_branch_dialog_message">Steam returned these downloadable variants for “%1$s”. Choose the branch snapshot to download.</string>
     <string name="workshop_branch_dialog_empty">No downloadable Workshop content was found.</string>

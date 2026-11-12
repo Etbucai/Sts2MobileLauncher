@@ -5,15 +5,8 @@ import top.apricityx.workshop.steam.protocol.OkHttpSteamCmSession
 import top.apricityx.workshop.steam.protocol.SteamCmSession
 import top.apricityx.workshop.steam.protocol.SteamContentClient
 import top.apricityx.workshop.steam.protocol.SteamDirectoryClient
-import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
@@ -23,8 +16,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
+import java.nio.file.Files
 import java.util.zip.ZipInputStream
 
 class UgcWorkshopDownloader(
@@ -86,10 +78,11 @@ class UgcWorkshopDownloader(
             log("Loaded ${contentServers.size} SteamPipe content servers")
             val serverPool = cdnTransport.buildServerPool(request.appId, contentServers)
             require(serverPool.downloadServers.isNotEmpty()) { "No CDN download servers available for app=${request.appId}" }
-            val downloadServers = serverPool.downloadServers.distinctBy(::physicalServerKey)
+            val downloadServers = serverPool.downloadServers
+            val physicalServerCount = SteamChunkDownloadPolicy.distinctPhysicalServers(downloadServers).size
             log(
                 "Selected ${serverPool.downloadServers.size} weighted CDN entries " +
-                    "from ${downloadServers.size} physical servers",
+                    "from $physicalServerCount physical servers",
             )
             serverPool.proxyServer?.let { proxy ->
                 log("Detected CDN proxy host=${proxy.host} template=${proxy.proxyRequestPathTemplate ?: "(none)"}")
@@ -126,7 +119,13 @@ class UgcWorkshopDownloader(
         emit: suspend (DownloadEvent) -> Unit,
         log: suspend (String) -> Unit,
     ) = withContext(Dispatchers.IO) {
-        val manifest = downloadManifest(item, servers, manifestRequestCode, fetchBytes, log)
+        val manifest = downloadManifest(
+            item,
+            SteamChunkDownloadPolicy.distinctPhysicalServers(servers),
+            manifestRequestCode,
+            fetchBytes,
+            log,
+        )
         require(manifest.depotId == item.depotId && manifest.manifestId == item.manifestId) {
             "Steam manifest identity does not match the requested content"
         }
@@ -153,6 +152,7 @@ class UgcWorkshopDownloader(
         emit(DownloadEvent.Progress(0L, totalBytes, 0, chunks.size, 0, totalFiles))
         val stageDir = File(request.outputDir, ".chunks").apply { mkdirs() }
         cacheChunks(item.depotId, servers, fetchBytes, chunks, stageDir, depotKey, totalFiles, emit, log)
+        clearAssembledOutput(request.outputDir, stageDir, log)
         assembleFiles(preparedManifest, request.outputDir, stageDir, totalBytes, chunks.size, totalFiles, emit, log)
     }
 
@@ -194,116 +194,116 @@ class UgcWorkshopDownloader(
         totalFiles: Int,
         emit: suspend (DownloadEvent) -> Unit,
         log: suspend (String) -> Unit,
-    ) = coroutineScope {
+    ) {
         if (chunks.isEmpty()) {
-            return@coroutineScope
+            return
         }
-        val workerCount = maxConcurrentChunks.coerceIn(1, chunks.size)
+        val workerCount = SteamChunkDownloadPolicy.workerCount(maxConcurrentChunks, chunks.size)
         val totalBytes = chunks.sumOf { it.uncompressedLength.toLong() }
-        val downloaded = AtomicLong(0L)
-        val completedChunks = AtomicInteger(0)
         val totalChunks = chunks.size
-        val nextChunkIndex = AtomicInteger(0)
-        val progress = CoalescedProgressEmitter(
-            totalBytes = totalBytes,
-            totalChunks = totalChunks,
-            totalFiles = totalFiles,
-            eventSink = emit,
+        val plans = chunks.map { chunk ->
+            PlannedChunk(
+                chunk = chunk,
+                destinations = listOf(File(stageDir, "${chunk.idHex}.chunk")),
+                estimatedBytes = SteamChunkDownloadPolicy.estimatedMemoryBytes(chunk),
+                progressBytes = chunk.uncompressedLength.coerceAtLeast(0).toLong(),
+            )
+        }
+        log(
+            "Downloading $totalChunks chunks with $workerCount workers across " +
+                "${SteamChunkDownloadPolicy.distinctPhysicalServers(contentServers).size} physical CDN servers",
         )
-
-        List(workerCount) {
-            async(Dispatchers.IO) {
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val index = nextChunkIndex.getAndIncrement()
-                    if (index >= chunks.size) {
-                        break
+        runBoundedChunkPipeline(
+            plannedChunks = plans,
+            options = BoundedChunkPipelineOptions(
+                workerCount = workerCount,
+                resultBufferCapacity = if (workerCount > 1) 1 else 0,
+                maxEstimatedBytesInFlight = SteamChunkDownloadPolicy.memoryBudgetBytes(),
+            ),
+            fetch = { plan ->
+                val stageFile = plan.destinations.single()
+                if (stageFile.isFile && validateChunkFile(stageFile, plan.chunk)) {
+                    CachedChunkPayload(bytes = null)
+                } else {
+                    if (stageFile.exists()) {
+                        stageFile.delete()
                     }
-                    val chunk = chunks[index]
-                    val stageFile = File(stageDir, "${chunk.idHex}.chunk")
-                    if (tryReuseCachedChunk(stageFile, chunk, downloaded, completedChunks, progress)) {
-                        continue
+                    val processed = SteamChunkDownloadPolicy.downloadWithRetries(
+                        chunkKey = plan.chunk.idHex,
+                        weightedServers = contentServers,
+                        onFailure = { _, server, error ->
+                            log("Chunk ${plan.chunk.idHex} failed from ${server.host}: ${error.message}")
+                        },
+                        onRetry = { nextAttempt ->
+                            log("Retrying chunk ${plan.chunk.idHex}, attempt $nextAttempt")
+                        },
+                    ) { server ->
+                        val path = "depot/$depotId/chunk/${plan.chunk.idHex}"
+                        val raw = fetchBytes(
+                            server,
+                            path,
+                            plan.chunk.compressedLength.toLong().takeIf { it > 0L },
+                        )
+                        ChunkProcessor.process(raw, plan.chunk, depotKey)
                     }
-
-                    val processed = downloadChunkWithRetries(
-                        depotId = depotId,
-                        contentServers = contentServers,
-                        fetchBytes = fetchBytes,
-                        chunk = chunk,
-                        depotKey = depotKey,
-                        log = log,
-                    )
-                    writeAtomically(stageFile, processed)
-                    val written = downloaded.addAndGet(processed.size.toLong())
-                    val done = completedChunks.incrementAndGet()
-                    progress.emit(
-                        writtenBytes = written,
-                        completedChunks = done,
+                    CachedChunkPayload(processed)
+                }
+            },
+            write = { plan, payload ->
+                payload.bytes?.let { writeAtomically(plan.destinations.single(), it) }
+            },
+            onProgress = { progress ->
+                emit(
+                    DownloadEvent.Progress(
+                        writtenBytes = progress.completedBytes,
+                        totalBytes = totalBytes,
+                        completedChunks = progress.completedChunks,
+                        totalChunks = totalChunks,
                         completedFiles = 0,
-                        force = done >= totalChunks,
-                    )
-                }
-            }
-        }.awaitAll()
-    }
-
-    private suspend fun tryReuseCachedChunk(
-        stageFile: File,
-        chunk: ManifestChunk,
-        downloaded: AtomicLong,
-        completedChunks: AtomicInteger,
-        progress: CoalescedProgressEmitter,
-    ): Boolean {
-        if (!stageFile.exists()) {
-            return false
-        }
-
-        if (!validateChunkFile(stageFile, chunk)) {
-            stageFile.delete()
-            return false
-        }
-
-        val written = downloaded.addAndGet(stageFile.length())
-        val done = completedChunks.incrementAndGet()
-        progress.emit(
-            writtenBytes = written,
-            completedChunks = done,
-            completedFiles = 0,
-            force = false,
+                        totalFiles = totalFiles,
+                    ),
+                )
+            },
         )
-        return true
     }
 
-    private suspend fun downloadChunkWithRetries(
-        depotId: UInt,
-        contentServers: List<CdnServer>,
-        fetchBytes: suspend (CdnServer, String, Long?) -> ByteArray,
-        chunk: ManifestChunk,
-        depotKey: ByteArray?,
+    private data class CachedChunkPayload(val bytes: ByteArray?)
+
+    private suspend fun clearAssembledOutput(
+        outputDir: File,
+        stageDir: File,
         log: suspend (String) -> Unit,
-    ): ByteArray {
-        var lastError: Throwable? = null
-
-        for (attempt in 1..MAX_CHUNK_DOWNLOAD_ATTEMPTS) {
-            for (server in rotateServers(contentServers, attempt - 1)) {
-                try {
-                    val path = "depot/$depotId/chunk/${chunk.idHex}"
-                    val raw = fetchBytes(server, path, chunk.compressedLength.toLong().takeIf { it > 0L })
-                    return ChunkProcessor.process(raw, chunk, depotKey)
-                } catch (error: Throwable) {
-                    error.throwIfCancellation()
-                    lastError = error
-                    log("Chunk ${chunk.idHex} failed from ${server.host}: ${error.message}")
-                }
+    ) {
+        val preservedNames = setOf(
+            stageDir.name,
+            "metadata.json",
+            "download.log",
+            ACTIVE_DOWNLOAD_MARKER,
+        )
+        outputDir.listFiles().orEmpty()
+            .filterNot { it.name in preservedNames }
+            .forEach { entry ->
+                deleteOutputEntry(entry, outputDir)
             }
+        log("Cleared previous assembled output while preserving verified chunk cache")
+    }
 
-            if (attempt < MAX_CHUNK_DOWNLOAD_ATTEMPTS) {
-                log("Retrying chunk ${chunk.idHex} (${attempt + 1}/$MAX_CHUNK_DOWNLOAD_ATTEMPTS)")
-                delay(CHUNK_RETRY_DELAY_MILLIS * attempt)
-            }
+    private fun deleteOutputEntry(entry: File, outputDir: File) {
+        if (Files.isSymbolicLink(entry.toPath())) {
+            Files.deleteIfExists(entry.toPath())
+            return
         }
-
-        throw WorkshopDownloadException("Failed to download chunk ${chunk.idHex}", lastError)
+        val rootPath = outputDir.canonicalPath
+        val entryPath = entry.canonicalPath
+        if (entryPath != rootPath && !entryPath.startsWith(rootPath + File.separator)) {
+            throw WorkshopDownloadException("Refusing to clear output outside the Workshop download directory")
+        }
+        if (entry.isDirectory) {
+            entry.listFiles().orEmpty().forEach { child -> deleteOutputEntry(child, outputDir) }
+        }
+        if (!entry.delete() && entry.exists()) {
+            throw WorkshopDownloadException("Unable to clear previous Workshop output: ${entry.absolutePath}")
+        }
     }
 
     private suspend fun assembleFiles(
@@ -478,21 +478,6 @@ class UgcWorkshopDownloader(
         }
     }
 
-    private fun rotateServers(
-        servers: List<CdnServer>,
-        offset: Int,
-    ): List<CdnServer> {
-        if (servers.isEmpty()) {
-            return emptyList()
-        }
-        return List(servers.size) { index ->
-            servers[(index + offset) % servers.size]
-        }
-    }
-
-    private fun physicalServerKey(server: CdnServer): String =
-        server.host.trim().lowercase(Locale.ROOT)
-
     private fun Throwable.throwIfCancellation() {
         when (this) {
             is Error -> throw this
@@ -557,10 +542,9 @@ class UgcWorkshopDownloader(
 
     companion object {
         const val DEFAULT_MAX_CONCURRENT_CHUNKS = 4
-        private const val MAX_CHUNK_DOWNLOAD_ATTEMPTS = 3
-        private const val CHUNK_RETRY_DELAY_MILLIS = 750L
-        private const val IO_BUFFER_SIZE = 64 * 1024
-        private const val IO_YIELD_BYTES = 1024 * 1024L
+private const val IO_BUFFER_SIZE = 64 * 1024
+        private const val IO_YIELD_BYTES = 1024L * 1024L
+        private const val ACTIVE_DOWNLOAD_MARKER = ".workshop-download-active"
         private const val PROGRESS_EMIT_BYTES = 512 * 1024L
         private const val PROGRESS_EMIT_CHUNKS = 4
         private const val PROGRESS_EMIT_FILES = 8
