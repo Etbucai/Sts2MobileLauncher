@@ -6,6 +6,7 @@ import com.godot.game.steam.auth.SteamLoginCoordinator
 import com.godot.game.steam.core.SteamClientIdentity
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -16,6 +17,7 @@ import top.apricityx.workshop.workshop.SpireSupplyStationClient
 import kotlinx.coroutines.runBlocking
 import okhttp3.Dispatcher
 import okhttp3.Protocol
+import org.json.JSONObject
 import kotlinx.serialization.json.Json
 import top.apricityx.workshop.steam.protocol.SteamAccountSession
 import top.apricityx.workshop.steam.protocol.SteamDirectoryClient
@@ -171,7 +173,8 @@ class SteamWorkshopDownloader(private val context: Context) {
         val account = if (useSupplyStation) null else createAccountSession(appContext, identity)
         val outputDir = prepareOutputDir(
             appContext,
-            item.publishedFileId.toString(),
+            item,
+            selectedOption,
             resumeDirectoryId,
         )
         val activeMarker = File(outputDir, ACTIVE_DOWNLOAD_MARKER)
@@ -466,33 +469,74 @@ class SteamWorkshopDownloader(private val context: Context) {
 
     private fun prepareOutputDir(
         context: Context,
-        publishedFileId: String,
+        item: SteamWorkshopCatalog.Item,
+        selectedOption: BranchOption?,
         resumeDirectoryId: String?,
     ): File {
         val root = File(File(context.filesDir, "workshop"), "downloads")
         if (!root.isDirectory && !root.mkdirs()) {
             throw IOException("Unable to create workshop downloads directory: ${root.absolutePath}")
         }
+        val publishedFileId = item.publishedFileId.toString()
         val directoryId = resumeDirectoryId?.trim().orEmpty().ifBlank {
-            "$publishedFileId-${UUID.randomUUID()}"
+            findCompatibleLegacyResumeDirectory(root, item, selectedOption)?.name
+                ?: "$publishedFileId-${UUID.randomUUID()}"
         }
         if (!isSafeResumeDirectoryId(directoryId) || !directoryId.startsWith("$publishedFileId-")) {
             throw IOException("Invalid workshop resume directory id.")
         }
         val dir = File(root, directoryId)
-        if (dir.parentFile?.canonicalFile != root.canonicalFile || dir.canonicalFile != dir.absoluteFile) {
-            throw IOException("Workshop resume directory must be a direct, non-symbolic child of the downloads root.")
+        if (dir.parentFile?.canonicalFile != root.canonicalFile) {
+            throw IOException("Workshop resume directory must be a direct child of the downloads root.")
         }
         if (dir.exists()) {
-            if (!dir.isDirectory) {
+            if (Files.isSymbolicLink(dir.toPath()) || !dir.isDirectory) {
                 throw IOException("Workshop resume path is not a directory: ${dir.absolutePath}")
             }
         } else {
             if (!dir.mkdirs()) {
                 throw IOException("Unable to create workshop output directory: ${dir.absolutePath}")
             }
+            if (Files.isSymbolicLink(dir.toPath()) || dir.parentFile?.canonicalFile != root.canonicalFile) {
+                throw IOException("Workshop resume directory failed its post-creation safety check.")
+            }
         }
         return dir
+    }
+
+    private fun findCompatibleLegacyResumeDirectory(
+        root: File,
+        item: SteamWorkshopCatalog.Item,
+        selectedOption: BranchOption?,
+    ): File? {
+        val expectedManifest = selectedOption?.manifestId?.trim().orEmpty()
+        val expectedDepot = selectedOption?.depotId?.trim().orEmpty()
+        if (expectedManifest.isBlank() || expectedDepot.isBlank()) {
+            return null
+        }
+        val expectedBranch = normalizeWorkshopBranch(selectedOption?.branch ?: "public")
+        return root.listFiles().orEmpty()
+            .asSequence()
+            .filter { candidate ->
+                candidate.name.startsWith("${item.publishedFileId}-") &&
+                    isSafeResumeDirectoryId(candidate.name) &&
+                    candidate.isDirectory &&
+                    !Files.isSymbolicLink(candidate.toPath()) &&
+                    !File(candidate, ACTIVE_DOWNLOAD_MARKER).exists() &&
+                    File(candidate, ".chunks").isDirectory
+            }
+            .filter { candidate ->
+                runCatching {
+                    val metadata = JSONObject(File(candidate, "metadata.json").readText())
+                    metadata.optString("published_file_id") == item.publishedFileId &&
+                        normalizeWorkshopBranch(metadata.optString("requested_branch")) == expectedBranch &&
+                        metadata.optString("resolved_manifest_id") == expectedManifest &&
+                        metadata.optString("resolved_depot_id") == expectedDepot
+                }.getOrDefault(false)
+            }
+            .maxByOrNull { candidate ->
+                File(candidate, ".chunks").lastModified().coerceAtLeast(candidate.lastModified())
+            }
     }
 
     private fun isSafeResumeDirectoryId(value: String): Boolean =

@@ -6,12 +6,26 @@ import android.provider.Settings
 import java.util.UUID
 import okhttp3.OkHttpClient
 import top.apricityx.workshop.steam.protocol.DEFAULT_MACHINE_NAME
+import top.apricityx.workshop.steam.protocol.SteamCmEndpointHealthRegistry
 import top.apricityx.workshop.steam.protocol.OkHttpSteamCmSession
 import top.apricityx.workshop.steam.protocol.buildSteamMachineId
 
 class SteamClientIdentity(context: Context) {
     private val appContext = context.applicationContext
     val machineName: String = "STS2 Android Launcher"
+    private val prefs by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    init {
+        SteamCmEndpointHealthRegistry.rememberCellId(
+            prefs.getLong(KEY_STEAM_CELL_ID, 0L).coerceAtLeast(0L).toUInt(),
+        )
+        SteamCmEndpointHealthRegistry.rememberPreferredEndpoint(
+            prefs.getString(KEY_PREFERRED_CM_ENDPOINT, null),
+        )
+    }
+
     private val machineId: ByteArray by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val installationId = resolveInstallationId()
         val baseId = resolveAndroidId() ?: installationId
@@ -39,6 +53,14 @@ class SteamClientIdentity(context: Context) {
         client = client,
         machineName = machineName.ifBlank { DEFAULT_MACHINE_NAME },
         machineId = machineId,
+        onEndpointConnected = { server ->
+            prefs.edit().putString(KEY_PREFERRED_CM_ENDPOINT, server.websocketUri).apply()
+        },
+        onSessionEstablished = { session ->
+            if (session.cellId > 0u) {
+                prefs.edit().putLong(KEY_STEAM_CELL_ID, session.cellId.toLong()).apply()
+            }
+        },
     )
 
     private fun resolveAndroidId(): String? = Settings.Secure.getString(
@@ -47,7 +69,6 @@ class SteamClientIdentity(context: Context) {
     )?.trim()?.takeUnless { it.isBlank() || it == INVALID_ANDROID_ID }
 
     private fun resolveInstallationId(): String {
-        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.getString(KEY_INSTALLATION_ID, null)?.trim()?.takeIf(String::isNotBlank)?.let { return it }
         val created = UUID.randomUUID().toString()
         prefs.edit().putString(KEY_INSTALLATION_ID, created).apply()
@@ -57,6 +78,8 @@ class SteamClientIdentity(context: Context) {
     private companion object {
         private const val PREFS_NAME = "sts2_steam_client_identity"
         private const val KEY_INSTALLATION_ID = "installation_id"
+        private const val KEY_STEAM_CELL_ID = "steam_cell_id"
+        private const val KEY_PREFERRED_CM_ENDPOINT = "preferred_cm_endpoint"
         private const val INVALID_ANDROID_ID = "9774d56d682e549c"
     }
 }

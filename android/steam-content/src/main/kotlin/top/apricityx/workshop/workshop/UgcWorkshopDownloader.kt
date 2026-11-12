@@ -1,6 +1,7 @@
 package top.apricityx.workshop.workshop
 
 import top.apricityx.workshop.steam.protocol.CdnServer
+import top.apricityx.workshop.steam.protocol.SteamCmEndpointHealthRegistry
 import top.apricityx.workshop.steam.protocol.OkHttpSteamCmSession
 import top.apricityx.workshop.steam.protocol.SteamCmSession
 import top.apricityx.workshop.steam.protocol.SteamContentClient
@@ -36,7 +37,11 @@ class UgcWorkshopDownloader(
     ) = withContext(Dispatchers.IO) {
         log("Loading Steam CM websocket candidates")
         val cmServers = directoryClient.loadServers()
-        log("Loaded ${cmServers.size} CM websocket candidates")
+        val cmRegions = cmServers.mapNotNull(::cmRegion).distinct()
+        log(
+            "Loaded ${cmServers.size} CM websocket endpoint candidates" +
+                if (cmRegions.isEmpty()) "" else " across regions=${cmRegions.joinToString(",")}",
+        )
         val cdnTransport = SteamCdnTransport(client)
 
         sessionFactory().use { session ->
@@ -44,7 +49,13 @@ class UgcWorkshopDownloader(
             val connectResult = runCatching { sessionConnector(session, cmServers) }
             connectResult.exceptionOrNull()?.throwIfCancellation()
             connectResult
-                .onSuccess { log("Connected to Steam CM cell=${it.cellId} steamId=${it.steamId}") }
+                .onSuccess {
+                    log(
+                        "Connected to Steam CM endpoint=" +
+                            "${SteamCmEndpointHealthRegistry.preferredEndpoint() ?: "unknown"} " +
+                            "cell=${it.cellId} steamId=${it.steamId}",
+                    )
+                }
                 .onFailure {
                     if (allowPublicCdnFallbackOnSessionFailure) {
                         log("Steam CM connection failed, continuing with public CDN flow: ${it.message}")
@@ -107,6 +118,11 @@ class UgcWorkshopDownloader(
                         contentClient, cdnTransport, cdnAuthTokenCache, expectedLength)
                 }, emit, log)
         }
+    }
+
+    private fun cmRegion(server: top.apricityx.workshop.steam.protocol.CmServer): String? {
+        val label = server.endpoint.substringBefore(':').substringBefore('.')
+        return label.substringAfter('-', "").takeIf(String::isNotBlank)
     }
 
     internal suspend fun downloadAuthorized(

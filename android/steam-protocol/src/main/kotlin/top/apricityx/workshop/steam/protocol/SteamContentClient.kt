@@ -14,8 +14,9 @@ class SteamContentClient(
     private val directoryClient: SteamDirectoryClient,
 ) {
     suspend fun getServersForSteamPipe(
-        cellId: UInt = session.currentSession.value?.cellId ?: 0u,
-        maxServers: UInt = 20u,
+        cellId: UInt = session.currentSession.value?.cellId
+            ?: SteamCmEndpointHealthRegistry.preferredCellId(),
+        maxServers: UInt = 50u,
     ): List<CdnServer> {
         return runCatching {
             val response = session.callServiceMethod(

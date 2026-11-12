@@ -15,7 +15,10 @@ class SteamDirectoryClient(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val apiBaseUrl: HttpUrl = "https://api.steampowered.com/".toHttpUrl(),
 ) {
-    suspend fun loadServers(cellId: UInt = 0u, maxCount: UInt = 20u): List<CmServer> = withContext(Dispatchers.IO) {
+    suspend fun loadServers(
+        cellId: UInt = SteamCmEndpointHealthRegistry.preferredCellId(),
+        maxCount: UInt = 50u,
+    ): List<CmServer> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(
                 apiBaseUrl.newBuilder()
@@ -23,6 +26,7 @@ class SteamDirectoryClient(
                     .addQueryParameter("format", "json")
                     .addQueryParameter("cellid", cellId.toString())
                     .addQueryParameter("maxcount", maxCount.toString())
+                    .addQueryParameter("qoslevel", "1")
                     .build(),
             )
             .build()
@@ -35,12 +39,23 @@ class SteamDirectoryClient(
             val parsed = json.decodeFromString<CmDirectoryEnvelope>(payload)
             parsed.response.serverList
                 .filter { it.type == "websockets" }
-                .map { CmServer(endpoint = it.endpoint, type = it.type) }
+                .flatMap { server ->
+                    SteamPacketCodec.buildWebSocketUris(server.endpoint).map { uri ->
+                        CmServer(
+                            endpoint = server.endpoint,
+                            type = server.type,
+                            websocketUri = uri,
+                        )
+                    }
+                }
                 .distinctBy(CmServer::websocketUri)
         }
     }
 
-    suspend fun loadContentServers(cellId: UInt = 0u, maxCount: UInt = 20u): List<CdnServer> = withContext(Dispatchers.IO) {
+    suspend fun loadContentServers(
+        cellId: UInt = SteamCmEndpointHealthRegistry.preferredCellId(),
+        maxCount: UInt = 50u,
+    ): List<CdnServer> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(
                 apiBaseUrl.newBuilder()

@@ -18,10 +18,17 @@ import kotlin.test.assertEquals
 
 class SteamContentServerMappingTest {
     @Test
-    fun steamWebSocketHostsPreferStandardTlsPort() {
+    fun steamWebSocketHostsKeepListedPortAndAddStandardTlsFallback() {
         assertEquals(
-            "wss://cmp1-tyo3.steamserver.net:443/cmsocket/",
+            "wss://cmp1-tyo3.steamserver.net:27020/cmsocket/",
             SteamPacketCodec.buildWebSocketUri("cmp1-tyo3.steamserver.net:27020"),
+        )
+        assertEquals(
+            listOf(
+                "wss://cmp1-tyo3.steamserver.net:27020/cmsocket/",
+                "wss://cmp1-tyo3.steamserver.net:443/cmsocket/",
+            ),
+            SteamPacketCodec.buildWebSocketUris("cmp1-tyo3.steamserver.net:27020"),
         )
         assertEquals(
             "wss://example.test:27020/cmsocket/",
@@ -87,6 +94,50 @@ class SteamContentServerMappingTest {
         val server = SteamDirectoryClient(client = httpClient).loadContentServers().single()
 
         assertEquals(listOf("SteamCache"), server.bypassProxiesOfType)
+    }
+
+    @Test
+    fun cmDirectoryRequestsBroadQosCandidatesAndExpandsTlsFallbacks() = runBlocking {
+        var requestedUrl = ""
+        val body = """
+            {
+              "response": {
+                "serverlist": [
+                  {"endpoint":"cmp1-hkg1.steamserver.net:27025","type":"websockets"},
+                  {"endpoint":"192.0.2.1:27020","type":"websockets"},
+                  {"endpoint":"192.0.2.2:27017","type":"netfilter"}
+                ]
+              }
+            }
+        """.trimIndent()
+        val httpClient = OkHttpClient.Builder()
+            .addInterceptor(
+                Interceptor { chain ->
+                    requestedUrl = chain.request().url.toString()
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                },
+            )
+            .build()
+
+        val servers = SteamDirectoryClient(client = httpClient).loadServers(cellId = 47u)
+
+        assertEquals(
+            listOf(
+                "wss://cmp1-hkg1.steamserver.net:27025/cmsocket/",
+                "wss://cmp1-hkg1.steamserver.net:443/cmsocket/",
+                "wss://192.0.2.1:27020/cmsocket/",
+            ),
+            servers.map(CmServer::websocketUri),
+        )
+        kotlin.test.assertTrue(requestedUrl.contains("cellid=47"))
+        kotlin.test.assertTrue(requestedUrl.contains("maxcount=50"))
+        kotlin.test.assertTrue(requestedUrl.contains("qoslevel=1"))
     }
 
     private class ResponseSession(
