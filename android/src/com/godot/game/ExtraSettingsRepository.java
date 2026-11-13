@@ -2436,7 +2436,7 @@ public final class ExtraSettingsRepository {
 			if (!isSafeModBaseName(pckName)) {
 				return null;
 			}
-			String displayName = firstNonEmpty(manifest.optString("name", ""), manifest.optString("display_name", ""), modId).trim();
+			String displayName = firstNonEmpty(manifest.optString("display_name", ""), manifest.optString("name", ""), modId).trim();
 			String version = firstNonEmpty(manifest.optString("version", ""), manifest.optString("mod_version", ""), manifest.optString("Version", ""));
 			String authors = readAuthors(manifest);
 			String description = firstNonEmpty(manifest.optString("description", ""), manifest.optString("desc", ""), manifest.optString("Description", ""));

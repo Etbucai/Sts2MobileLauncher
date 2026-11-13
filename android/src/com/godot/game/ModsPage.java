@@ -716,7 +716,10 @@ public final class ModsPage {
 				Map<String, String> notes = repository.loadAllModNotes();
 				String gameVersion = resolveCurrentGameVersion();
 				List<ExtraSettingsRepository.ModEntry> allMods = repository.listInstalledModManifests();
-				LoadedMods loaded = new LoadedMods(settings, notes, gameVersion, allMods);
+				SteamWorkshopLibrary workshopLibrary = new SteamWorkshopLibrary(context);
+				Map<ExtraSettingsRepository.ModEntry, WorkshopModDisplayNames.Source> workshopSources =
+					WorkshopModDisplayNames.resolve(allMods, workshopLibrary.listEntries(), workshopLibrary.getCurrentScope());
+				LoadedMods loaded = new LoadedMods(settings, notes, gameVersion, allMods, workshopSources);
 				loaded.userGroups.addAll(repository.listModGroups());
 				loaded.groupAssignments.putAll(repository.loadModGroupAssignments());
 				loaded.groupOrder.putAll(orderRanks(repository.loadModGroupOrder()));
@@ -2665,7 +2668,8 @@ public final class ModsPage {
 
 	private String compactMeta(ExtraSettingsRepository.ModEntry entry) {
 		List<String> parts = new ArrayList<>();
-		if (!TextUtils.isEmpty(noteFor(entry.modId)) && !TextUtils.isEmpty(entry.displayName)) {
+		if ((!TextUtils.isEmpty(noteFor(entry.modId)) || workshopSourceFor(entry) != null)
+			&& !TextUtils.isEmpty(entry.displayName)) {
 			parts.add(entry.displayName);
 		}
 		if (!TextUtils.isEmpty(entry.version)) {
@@ -2721,7 +2725,18 @@ public final class ModsPage {
 			return "";
 		}
 		String note = noteFor(entry.modId);
-		return TextUtils.isEmpty(note) ? (entry.displayName == null ? "" : entry.displayName) : note;
+		if (!TextUtils.isEmpty(note)) {
+			return note;
+		}
+		WorkshopModDisplayNames.Source source = workshopSourceFor(entry);
+		return source == null ? (entry.displayName == null ? "" : entry.displayName) : source.displayName(entry);
+	}
+
+	private WorkshopModDisplayNames.Source workshopSourceFor(ExtraSettingsRepository.ModEntry entry) {
+		if (entry == null || loadedSnapshot == null) {
+			return null;
+		}
+		return loadedSnapshot.workshopSources.get(entry);
 	}
 
 	private String displayCategory(ExtraSettingsRepository.ModEntry entry) {
@@ -3697,6 +3712,7 @@ public final class ModsPage {
 		final Map<String, String> notes;
 		final String gameVersion;
 		final List<ExtraSettingsRepository.ModEntry> mods;
+		final Map<ExtraSettingsRepository.ModEntry, WorkshopModDisplayNames.Source> workshopSources;
 		final Map<ExtraSettingsRepository.ModEntry, String> searchText = new HashMap<>();
 		final Map<ExtraSettingsRepository.ModEntry, Long> modifiedAt = new HashMap<>();
 		final List<String> userGroups = new ArrayList<>();
@@ -3705,15 +3721,29 @@ public final class ModsPage {
 		final Map<String, Map<String, Integer>> modOrder = new HashMap<>();
 
 		LoadedMods(JSONObject settings, Map<String, String> notes, String gameVersion, List<ExtraSettingsRepository.ModEntry> mods) {
+			this(settings, notes, gameVersion, mods, Collections.emptyMap());
+		}
+
+		LoadedMods(
+			JSONObject settings,
+			Map<String, String> notes,
+			String gameVersion,
+			List<ExtraSettingsRepository.ModEntry> mods,
+			Map<ExtraSettingsRepository.ModEntry, WorkshopModDisplayNames.Source> workshopSources
+		) {
 			this.settings = settings;
 			this.notes = notes == null ? Collections.emptyMap() : new HashMap<>(notes);
 			this.gameVersion = gameVersion == null ? "" : gameVersion;
 			this.mods = mods == null ? Collections.emptyList() : new ArrayList<>(mods);
+			this.workshopSources = workshopSources == null ? Collections.emptyMap() : new HashMap<>(workshopSources);
 			for (ExtraSettingsRepository.ModEntry entry : this.mods) {
 				String note = this.notes.getOrDefault(entry.modId, "");
+				WorkshopModDisplayNames.Source source = this.workshopSources.get(entry);
+				String workshopTitle = source == null ? "" : source.title;
 				searchText.put(entry, (entry.displayName + " " + note + " " + entry.modId + " " + entry.pckName
 					+ " " + entry.version + " " + entry.authors + " " + entry.description + " " + entry.category
-					+ " " + entry.relativePath + " " + TextUtils.join(" ", entry.dependencyLabels)).toLowerCase(Locale.ROOT));
+					+ " " + entry.relativePath + " " + workshopTitle + " "
+					+ TextUtils.join(" ", entry.dependencyLabels)).toLowerCase(Locale.ROOT));
 				modifiedAt.put(entry, entry.manifestFile.lastModified());
 			}
 		}
