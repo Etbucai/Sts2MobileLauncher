@@ -179,7 +179,7 @@ Java 附加设置页通过 `ExtraSettingsRepository` 写入当前 launch profile
 | `v0.109.0` / `v0.109.1` beta（旧测试） | `v0.109.0`（稳定 id，显示 v0.109.x） | `.env`: `STS2_ORIGINAL_V1090_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1090_ROOT`（历史名，指向最新 v0.109.1） | `original-v0.109.0` |
 | `v0.110.0` / `v0.110.1` public beta（旧测试） | `v0.110.0`（显示 v0.110.x） | `.env`: `STS2_ORIGINAL_V1100_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1100_ROOT`（指向 v0.110.1） | `original-v0.110.0` |
 | `v0.111.0` public beta（旧测试） | `v0.111.0` | `.env`: `STS2_ORIGINAL_V1110_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1110_ROOT` | `original-v0.111.0` |
-| `v0.113.0` public beta | `v0.113.0` | `.env`: `STS2_ORIGINAL_V1130_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1130_ROOT` | `original-v0.113.0` |
+| `v0.113.0` public beta（当前） | `v0.113.0` | `.env`: `STS2_ORIGINAL_V1130_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1130_ROOT` | `original-v0.113.0` |
 
 开发步骤建议：
 
@@ -202,9 +202,11 @@ tools/android/stage-bundled-compat-packs.sh
 tools/package/build_importer_apk.sh
 ```
 
-只调试当前 target 时可运行 `(cd port-mod && ./tools/build-compat-matrix.sh --target v0.113.0)`；共享 v0.109.x 的稳定 target id `v0.109.0` 仍同时覆盖 v0.109.0/v0.109.1，历史 `original-v0.109.0` flavor 应指向最新 v0.109.1 引用；稳定 target id `v0.110.0` 同时覆盖 v0.110.0/v0.110.1，历史 `original-v0.110.0` flavor 应指向 v0.110.1 引用。legacy schema 1 诊断包仍用 `REFERENCE_FLAVOR=original` / `original-v0.106.1` / `original-v0.107.0` 指定对应原版 gate，单独调试后续 target 可分别使用对应 `original-v*` flavor。
+只调试当前 target 时可运行 `(cd port-mod && ./tools/build-compat-matrix.sh --target v0.113.0)`；共享 v0.109.x 的稳定 target id `v0.109.0` 仍同时覆盖 v0.109.0/v0.109.1，历史 `original-v0.109.0` flavor 应指向最新 v0.109.1 引用；稳定 target id `v0.110.0` 同时覆盖 v0.110.0/v0.110.1，历史 `original-v0.110.0` flavor 应指向 v0.110.1 引用。legacy schema 1 诊断包仍用 `REFERENCE_FLAVOR=original` / `original-v0.106.1` / `original-v0.107.0` 指定对应原版 gate，单独调试 `v0.107.1` / `v0.108.0` / `v0.109.x` / `v0.110.x` / `v0.111.0` / `v0.113.0` 可分别使用对应 `original-v*` flavor。
 
 v0.110.0 是游戏 MOD API 更新，不只是 Android target 更新；v0.110.1 仅包含不触达 Android compat 的 AutoSlay/lobby 实现修复，继续共用 v0.110.x target。v0.111.0 新增 transport-level `HandshakeManager`，host/client service 必须传入 `PeerVersionInfo`。v0.113.0 再把连接初始化器移入 `JoinFlow` 构造函数，并将 host 模式扩展为 Standard、Daily、Blitz、Dread 与 custom；Android LAN 按原版路由并继续复用原版握手与 wire protocol。直接静态引用变化成员的普通 MOD 必须发布匹配游戏版本的构建；full compat 不会向 `sts2.dll` 伪造已删除成员。
+
+v0.113.0 是独立 target，使用 `STS2_TARGET_1130`，不与 v0.111.0 共用 variant。LAN 加入直接走原版 `NJoinFriendScreen.JoinGameAsync`，让 payload 管理 `JoinFlow.Begin(SceneTree)`、取消、错误和模式路由；host 保留 `isCustom` 与 Standard/Daily/Blitz/Dread 的原版入口，读档使用 `IsCustomGame`。商店确认通过 API 形状分发购买入口：旧 target 调用各自 slot 的 `OnTryPurchase`，v0.113.0 重放原版 `OnSelected()` 并等待实际任务。新版宝箱保留预置 1–6 个遗物布局及 Large icon reveal，仅为更大容量补充布局。atlas-aware blur 的 `uv_region/radius_scale` 实例参数与旧 shader 不兼容，因此只在 v113 保留原版卡面 blur，不再安装已删除的 `NEpochSlot._blurShader` 修复；其他已审计 shader variants 不变。普通 MOD 仍须自行匹配该版本 API，compat 不补造已删除成员；桌面回归不等于 Android GPU/触控/跨设备认证。
 
 ## 8. 新增游戏版本 checklist
 
@@ -286,18 +288,18 @@ schema 2 family manifest：
   "schema": 2,
   "pack_id": "sts2-android-compat",
   "display_name": "STS2 Android Compatibility",
-  "compat_version": "0.6.0-dev",
+  "compat_version": "0.7.0-dev",
   "channel": "mixed",
   "targets": [
     {
-      "target_id": "v0.111.0",
-      "versions": ["v0.111.0"],
-      "source": "original_pc_reference_v0.111.0",
+      "target_id": "v0.113.0",
+      "versions": ["v0.113.0"],
+      "source": "original_pc_reference_v0.113.0",
       "steam_branch": "public-beta",
-      "sts2_dll_sha256": "0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9",
+      "sts2_dll_sha256": "a6cc282c52b96ad2e01d5692b1144b33aa8e3ba4e969582f648ecb13b2f751d7",
       "artifacts": {
-        "dll": "variants/v0.111.0/STS2Mobile.dll",
-        "overlay_pck": "variants/v0.111.0/port_compat.pck"
+        "dll": "variants/v0.113.0/STS2Mobile.dll",
+        "overlay_pck": "variants/v0.113.0/port_compat.pck"
       }
     }
   ]
