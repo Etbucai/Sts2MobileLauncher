@@ -25,8 +25,6 @@ import android.util.LruCache;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.CheckBox;
 import android.widget.FrameLayout;
@@ -1195,7 +1193,7 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 			if (holder instanceof WorkshopItemHolder) {
 				WorkshopItemHolder row = (WorkshopItemHolder) holder;
 				imageLoader.clear(row.thumb);
-				row.actions.removeAllViews();
+				row.download.removeAllViews();
 				row.item = null;
 			}
 		}
@@ -1204,7 +1202,7 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 	private final class WorkshopItemHolder extends RecyclerView.ViewHolder {
 		final ImageView thumb;
 		final TextView title, author, meta, description;
-		final LinearLayout actions;
+		final LinearLayout download;
 		SteamWorkshopCatalog.Item item;
 
 		WorkshopItemHolder() {
@@ -1238,9 +1236,9 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 			description.setMaxLines(2);
 			description.setEllipsize(TextUtils.TruncateAt.END);
 			texts.addView(description, fullWidthTopMargin(4));
-			actions = ExtraSettingsUi.horizontal(context);
-			row.addView(actions);
-			card.setOnClickListener(v -> { if (item != null) showItemDescription(item); });
+			download = ExtraSettingsUi.horizontal(context);
+			row.addView(download);
+			card.setOnClickListener(v -> { if (item != null) showItemDetails(item); });
 		}
 
 		void bind(SteamWorkshopCatalog.Item value) {
@@ -1254,77 +1252,9 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 		}
 
 		void refreshControl() {
-			actions.removeAllViews();
-			if (item != null) populateWorkshopListActions(actions, item);
+			download.removeAllViews();
+			if (item != null) download.addView(buildDownloadControl(item, false));
 		}
-	}
-
-	private void populateWorkshopListActions(LinearLayout actions, SteamWorkshopCatalog.Item item) {
-		actions.addView(buildWorkshopListDetailsControl(item));
-		LinearLayout.LayoutParams downloadParams = new LinearLayout.LayoutParams(
-			ViewGroup.LayoutParams.WRAP_CONTENT,
-			ViewGroup.LayoutParams.WRAP_CONTENT
-		);
-		downloadParams.setMarginStart(ExtraSettingsUi.dp(this, 4));
-		actions.addView(buildDownloadControl(item, false), downloadParams);
-	}
-
-	private View buildWorkshopListDetailsControl(SteamWorkshopCatalog.Item item) {
-		MaterialButton details = ExtraSettingsUi.iconButton(this, R.drawable.ic_chevron_right_24);
-		details.setContentDescription(getString(R.string.workshop_view_details));
-		details.setMinWidth(ExtraSettingsUi.dp(this, 48));
-		details.setMinimumWidth(ExtraSettingsUi.dp(this, 48));
-		details.setOnClickListener(v -> showItemDetails(item));
-		return details;
-	}
-
-	private void showItemDescription(SteamWorkshopCatalog.Item item) {
-		int screenHeight = getResources().getDisplayMetrics().heightPixels;
-		int maxDialogHeight = (int) (screenHeight * 0.78f);
-		int maxDescriptionHeight = Math.max(
-			ExtraSettingsUi.dp(this, 120),
-			maxDialogHeight - ExtraSettingsUi.dp(this, 144)
-		);
-		ScrollView scroll = new ScrollView(this) {
-			@Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-				super.onMeasure(
-					widthMeasureSpec,
-					View.MeasureSpec.makeMeasureSpec(maxDescriptionHeight, View.MeasureSpec.AT_MOST)
-				);
-			}
-		};
-		TextView description = ExtraSettingsUi.body(
-			this,
-			TextUtils.isEmpty(item.getDescription())
-				? getString(R.string.workshop_no_description)
-				: item.getDescription()
-		);
-		description.setTextIsSelectable(true);
-		description.setLineSpacing(ExtraSettingsUi.dp(this, 3), 1f);
-		int padding = ExtraSettingsUi.dp(this, 8);
-		description.setPadding(padding, padding, padding, padding);
-		scroll.addView(description, new ScrollView.LayoutParams(
-			ViewGroup.LayoutParams.MATCH_PARENT,
-			ViewGroup.LayoutParams.WRAP_CONTENT
-		));
-
-		androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-			.setTitle(item.getTitle())
-			.setView(scroll)
-			.setPositiveButton(android.R.string.ok, null)
-			.create();
-		configureWorkshopDescriptionDialogWindow(dialog);
-		dialog.show();
-	}
-
-	private void configureWorkshopDescriptionDialogWindow(androidx.appcompat.app.AlertDialog dialog) {
-		Window window = dialog.getWindow();
-		if (window == null) return;
-		WindowManager.LayoutParams attributes = window.getAttributes();
-		attributes.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
-		attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-		attributes.gravity = Gravity.CENTER;
-		window.setAttributes(attributes);
 	}
 
 	private View buildSummaryCard(String summary) {
