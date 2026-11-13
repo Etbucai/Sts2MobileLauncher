@@ -38,7 +38,12 @@ final class WorkshopModDisplayNames {
 					}
 				}
 			}
-			Source source = new Source(workshopTitle, matchedMods.size(), workshopEntry.installedAtMs);
+			Source source = new Source(
+				workshopEntry.publishedFileId,
+				workshopTitle,
+				matchedMods.size(),
+				workshopEntry.installedAtMs
+			);
 			for (ExtraSettingsRepository.ModEntry mod : matchedMods) {
 				Source existing = result.get(mod);
 				if (existing == null || source.installedAtMs > existing.installedAtMs) {
@@ -81,11 +86,13 @@ final class WorkshopModDisplayNames {
 	}
 
 	static final class Source {
+		final String publishedFileId;
 		final String title;
 		final int modCount;
 		private final long installedAtMs;
 
-		Source(String title, int modCount, long installedAtMs) {
+		Source(String publishedFileId, String title, int modCount, long installedAtMs) {
+			this.publishedFileId = publishedFileId == null ? "" : publishedFileId.trim();
 			this.title = title == null ? "" : title.trim();
 			this.modCount = Math.max(0, modCount);
 			this.installedAtMs = Math.max(0L, installedAtMs);

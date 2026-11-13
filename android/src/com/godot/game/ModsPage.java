@@ -2404,6 +2404,15 @@ public final class ModsPage {
 			}
 			LinearLayout actionsRow = ExtraSettingsUi.horizontal(context);
 			actionsRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
+			WorkshopModDisplayNames.Source workshopSource = workshopSourceFor(entry);
+			if (workshopSource != null && !TextUtils.isEmpty(workshopSource.publishedFileId)) {
+				MaterialButton workshop = detailIconButton(
+					R.drawable.ic_steam_24,
+					R.string.mod_action_open_workshop
+				);
+				workshop.setOnClickListener(v -> openWorkshopDetails(workshopSource.publishedFileId));
+				actionsRow.addView(workshop);
+			}
 			MaterialButton select = detailIconButton(R.drawable.ic_check_circle_24, selectedModIds.contains(entry.modId) ? R.string.mod_action_unselect : R.string.mod_action_select);
 			select.setTag("select_btn");
 			MaterialButton note = detailIconButton(R.drawable.ic_edit_24, R.string.mod_note_action);
@@ -2836,6 +2845,17 @@ public final class ModsPage {
 		}
 		try {
 			context.startActivity(FileBrowserActivity.createIntent(context, folder));
+		} catch (Exception exception) {
+			actions.showError(exception);
+		}
+	}
+
+	private void openWorkshopDetails(String publishedFileId) {
+		if (TextUtils.isEmpty(publishedFileId)) {
+			return;
+		}
+		try {
+			context.startActivity(SteamWorkshopActivity.createItemDetailIntent(context, publishedFileId));
 		} catch (Exception exception) {
 			actions.showError(exception);
 		}

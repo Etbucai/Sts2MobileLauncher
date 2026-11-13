@@ -1,5 +1,6 @@
 package com.godot.game;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -87,6 +88,7 @@ import top.apricityx.workshop.workshop.DownloadFailureMessagesKt;
 
 public class SteamWorkshopActivity extends AppCompatActivity {
 	private static final String WORKSHOP_WEB_URL = "https://steamcommunity.com/app/2868840/workshop/";
+	private static final String EXTRA_OPEN_ITEM_ID = "com.godot.game.extra.OPEN_WORKSHOP_ITEM_ID";
 	private static final long AUTO_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
 	private static final int SCREEN_LIST = 0;
 	private static final int SCREEN_DETAIL = 1;
@@ -158,6 +160,19 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 	private boolean branchDialogActive;
 	private volatile boolean destroyed;
 
+	public static Intent createItemDetailIntent(Context context, String publishedFileId) {
+		return new Intent(context, SteamWorkshopActivity.class)
+			.putExtra(EXTRA_OPEN_ITEM_ID, publishedFileId == null ? "" : publishedFileId.trim());
+	}
+
+	static String requestedItemId(Intent intent) {
+		if (intent == null) {
+			return "";
+		}
+		String publishedFileId = intent.getStringExtra(EXTRA_OPEN_ITEM_ID);
+		return publishedFileId == null ? "" : publishedFileId.trim();
+	}
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -177,7 +192,14 @@ public class SteamWorkshopActivity extends AppCompatActivity {
 		refreshSettingsSummary();
 		refreshFilterLabels();
 		if (screenHost != null) {
-			screenHost.post(() -> searchWorkshop("", 1));
+			String requestedItemId = requestedItemId(getIntent());
+			screenHost.post(() -> {
+				if (TextUtils.isEmpty(requestedItemId)) {
+					searchWorkshop("", 1);
+				} else {
+					openWorkshopItemById(requestedItemId);
+				}
+			});
 		}
 	}
 

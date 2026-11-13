@@ -850,6 +850,7 @@
     <string name="mod_import_conflict_incoming">新 MOD</string>
     <string name="mod_import_conflict_keep_original">保留原 MOD</string>
     <string name="mod_import_conflict_use_new">使用新 MOD</string>
+    <string name="mod_action_open_workshop">查看创意工坊详情</string>
     <string name="mod_import_path_conflict_title">MOD 文件覆盖警告</string>
     <string name="mod_import_path_conflict_message">新导入内容包含当前 MOD 目录里已存在的文件路径。继续可能在不改变界面项目的情况下替换另一个 MOD 的 DLL/PCK/资源文件。仅在信任来源且明确知道受影响 MOD 时才替换。</string>
     <string name="mod_import_path_conflict_owner">当前归属：%1$s</string>

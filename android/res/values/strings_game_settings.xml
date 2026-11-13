@@ -850,6 +850,7 @@
     <string name="mod_import_conflict_incoming">New import</string>
     <string name="mod_import_conflict_keep_original">Keep installed</string>
     <string name="mod_import_conflict_use_new">Use new</string>
+    <string name="mod_action_open_workshop">View Workshop item</string>
     <string name="mod_import_path_conflict_title">MOD file overwrite warning</string>
     <string name="mod_import_path_conflict_message">The new import contains file paths that already exist in the current MOD folder. Continuing can replace another MOD\'s DLL/PCK/resource files without changing its visible entry. Only replace them if you trust the source and understand which MOD will be affected.</string>
     <string name="mod_import_path_conflict_owner">Currently owned by: %1$s</string>

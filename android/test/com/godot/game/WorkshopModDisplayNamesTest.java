@@ -34,12 +34,14 @@ public class WorkshopModDisplayNamesTest {
 	@Test public void singleModUsesWorkshopTitle() throws Exception {
 		File installRoot = createWorkshopInstall("single", manifest("SingleTarget", "Single Target"));
 		List<ExtraSettingsRepository.ModEntry> mods = repository.listInstalledModManifestsUnder(installRoot);
-		library.recordInstall(item("Click Anywhere | 单敌自动瞄准"), installRoot, mods);
+		SteamWorkshopCatalog.Item item = item("Click Anywhere | 单敌自动瞄准");
+		library.recordInstall(item, installRoot, mods);
 
 		Map<ExtraSettingsRepository.ModEntry, WorkshopModDisplayNames.Source> sources =
 			WorkshopModDisplayNames.resolve(mods, library.listEntries(), library.getCurrentScope());
 
 		assertEquals(1, sources.size());
+		assertEquals(item.getPublishedFileId(), sources.get(mods.get(0)).publishedFileId);
 		assertEquals("Click Anywhere | 单敌自动瞄准", sources.get(mods.get(0)).displayName(mods.get(0)));
 	}
 
