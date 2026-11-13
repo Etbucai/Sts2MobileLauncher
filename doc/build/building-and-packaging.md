@@ -207,14 +207,14 @@ android/assets/dotnet_bcl/STS2Mobile.dll
 android/assets/port_compat.pck
 ```
 
-默认 `ReferenceFlavor` 来自 `local.properties` 的 `compat.default_reference_flavor`（示例为 `original-v0.111.0`）。可临时覆盖：
+默认 `ReferenceFlavor` 来自 `local.properties` 的 `compat.default_reference_flavor`（示例为 `original-v0.113.0`）。可临时覆盖：
 
 ```bash
 # 当前稳定版 v0.108.0
 REFERENCE_FLAVOR=original-v0.108.0 tools/android/build-port-mod.sh
 
-# 当前 public-beta v0.111.0
-REFERENCE_FLAVOR=original-v0.111.0 tools/android/build-port-mod.sh
+# 当前 public-beta v0.113.0
+REFERENCE_FLAVOR=original-v0.113.0 tools/android/build-port-mod.sh
 
 # 旧 public-beta v0.110.x（历史 flavor 名称）
 REFERENCE_FLAVOR=original-v0.110.0 tools/android/build-port-mod.sh
@@ -282,7 +282,8 @@ tools/android/stage-bundled-compat-packs.sh
 - `v0.108.0`（当前稳定版，`ReferenceFlavor=original-v0.108.0`）
 - `v0.109.0`（稳定 target id，显示为 v0.109.x，同时支持 v0.109.0/v0.109.1；历史 `ReferenceFlavor=original-v0.109.0` 指向最新 v0.109.1 引用）
 - `v0.110.0` / `v0.110.1`（旧 public beta，共享 API/protocol target id `v0.110.0`，历史 `ReferenceFlavor=original-v0.110.0` 使用 v0.110.1 引用）
-- `v0.111.0`（当前 public beta，独立 API/transport-handshake target，`ReferenceFlavor=original-v0.111.0`）
+- `v0.111.0`（旧 public beta，独立 API/transport-handshake target，`ReferenceFlavor=original-v0.111.0`）
+- `v0.113.0`（当前 public beta，独立 JoinFlow/host-mode target，`ReferenceFlavor=original-v0.113.0`）
 
 同一 variant 覆盖多个 API-compatible 原版 DLL 时，target 的 `sts2_dll_sha256` 可声明为字符串数组；构建脚本会原样写入 schema 2 manifest，启动器会遍历全部元素做精确 SHA 匹配。旧单字符串 manifest 继续兼容。
 
@@ -308,7 +309,7 @@ legacy 模式读取 `tools/android/bundled-compat-packs.json`（或 `local.prope
 
 ```bash
 cd port-mod
-./tools/build-compat-matrix.sh --target v0.111.0
+./tools/build-compat-matrix.sh --target v0.113.0
 ./tools/build-compat-matrix.sh
 ```
 
@@ -451,7 +452,7 @@ tools/package/build_android_body_zip.sh \
   --source-dir "/path/to/s201091" \
   --out "dist/payload/sts2-v0.109.1-android-body.zip"
 
-# v0.111.0 当前 public beta
+# v0.111.0 旧 public beta
 tools/package/build_android_body_zip.sh \
   --pc-zip "/path/to/sts2-v0.111.0.zip" \
   --source-dir "/path/to/s201110" \
@@ -507,8 +508,8 @@ rg 'preferredRefreshRate' \
 # payload zip 校验
 tools/package/validate_payload_zip.py "/path/to/SlayTheSpire2.zip"
 
-# 当前 public-beta v0.111.0 compile gate
-REFERENCE_FLAVOR=original-v0.111.0 tools/android/build-port-mod.sh
+# 当前 public-beta v0.113.0 compile gate
+REFERENCE_FLAVOR=original-v0.113.0 tools/android/build-port-mod.sh
 
 # 旧 v0.110.x compile gate（历史 flavor，引用为 v0.110.1）
 REFERENCE_FLAVOR=original-v0.110.0 tools/android/build-port-mod.sh

@@ -178,7 +178,8 @@ Java 附加设置页通过 `ExtraSettingsRepository` 写入当前 launch profile
 | `v0.108.0` stable | `v0.108.0` | `.env`: `STS2_ORIGINAL_V1080_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1080_ROOT` | `original-v0.108.0` |
 | `v0.109.0` / `v0.109.1` beta（旧测试） | `v0.109.0`（稳定 id，显示 v0.109.x） | `.env`: `STS2_ORIGINAL_V1090_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1090_ROOT`（历史名，指向最新 v0.109.1） | `original-v0.109.0` |
 | `v0.110.0` / `v0.110.1` public beta（旧测试） | `v0.110.0`（显示 v0.110.x） | `.env`: `STS2_ORIGINAL_V1100_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1100_ROOT`（指向 v0.110.1） | `original-v0.110.0` |
-| `v0.111.0` public beta | `v0.111.0` | `.env`: `STS2_ORIGINAL_V1110_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1110_ROOT` | `original-v0.111.0` |
+| `v0.111.0` public beta（旧测试） | `v0.111.0` | `.env`: `STS2_ORIGINAL_V1110_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1110_ROOT` | `original-v0.111.0` |
+| `v0.113.0` public beta | `v0.113.0` | `.env`: `STS2_ORIGINAL_V1130_REFERENCE_DIR` 或 `STS2_ORIGINAL_V1130_ROOT` | `original-v0.113.0` |
 
 开发步骤建议：
 
@@ -190,7 +191,7 @@ git -C port-mod status --short --branch
 (cd port-mod && ./tools/build-compat-matrix.sh)
 
 # 3. 可选：构建当前 fallback 或 legacy schema 1 诊断包
-REFERENCE_FLAVOR=original-v0.111.0 tools/android/build-port-mod.sh
+REFERENCE_FLAVOR=original-v0.113.0 tools/android/build-port-mod.sh
 # 或
 tools/android/build-port-mod.sh
 # 或
@@ -201,9 +202,9 @@ tools/android/stage-bundled-compat-packs.sh
 tools/package/build_importer_apk.sh
 ```
 
-只调试当前 target 时可运行 `(cd port-mod && ./tools/build-compat-matrix.sh --target v0.111.0)`；共享 v0.109.x 的稳定 target id `v0.109.0` 仍同时覆盖 v0.109.0/v0.109.1，历史 `original-v0.109.0` flavor 应指向最新 v0.109.1 引用；稳定 target id `v0.110.0` 同时覆盖 v0.110.0/v0.110.1，历史 `original-v0.110.0` flavor 应指向 v0.110.1 引用。legacy schema 1 诊断包仍用 `REFERENCE_FLAVOR=original` / `original-v0.106.1` / `original-v0.107.0` 指定对应原版 gate，单独调试 `v0.107.1` / `v0.108.0` / `v0.109.x` / `v0.110.x` / `v0.111.0` 可分别使用对应 `original-v*` flavor。
+只调试当前 target 时可运行 `(cd port-mod && ./tools/build-compat-matrix.sh --target v0.113.0)`；共享 v0.109.x 的稳定 target id `v0.109.0` 仍同时覆盖 v0.109.0/v0.109.1，历史 `original-v0.109.0` flavor 应指向最新 v0.109.1 引用；稳定 target id `v0.110.0` 同时覆盖 v0.110.0/v0.110.1，历史 `original-v0.110.0` flavor 应指向 v0.110.1 引用。legacy schema 1 诊断包仍用 `REFERENCE_FLAVOR=original` / `original-v0.106.1` / `original-v0.107.0` 指定对应原版 gate，单独调试后续 target 可分别使用对应 `original-v*` flavor。
 
-v0.110.0 是游戏 MOD API 更新，不只是 Android target 更新；v0.110.1 仅包含不触达 Android compat 的 AutoSlay/lobby 实现修复，继续共用 v0.110.x target。该 API 线移除了 `Scare`、`OutbreakPower`、旧 `LobbyPlayer`、`JoinFlow.MockInfo`、`MegaInput.accept/releaseCard` 与旧 controller/keyboard mapping API。v0.111.0 再次使用独立 target：原版新增 transport-level `HandshakeManager`，`NetClientGameService` / `NetHostGameService` 构造时必须传入 `PeerVersionInfo`，版本、ModelDb hash 与 MOD 校验在消息总线启用前完成；Android LAN 只传入 `PeerVersionInfo.LocalDefault()` 并继续使用原版握手与 wire protocol。`AnimState` 同时把 trigger branch 字段改名并增加条件 next-state graph，compat 动画预热会读取两种字段形状。直接静态引用这些变化成员的普通 MOD 必须发布匹配 v0.111.0 的版本；full compat 不会向 `sts2.dll` 伪造已删除成员。
+v0.110.0 是游戏 MOD API 更新，不只是 Android target 更新；v0.110.1 仅包含不触达 Android compat 的 AutoSlay/lobby 实现修复，继续共用 v0.110.x target。v0.111.0 新增 transport-level `HandshakeManager`，host/client service 必须传入 `PeerVersionInfo`。v0.113.0 再把连接初始化器移入 `JoinFlow` 构造函数，并将 host 模式扩展为 Standard、Daily、Blitz、Dread 与 custom；Android LAN 按原版路由并继续复用原版握手与 wire protocol。直接静态引用变化成员的普通 MOD 必须发布匹配游戏版本的构建；full compat 不会向 `sts2.dll` 伪造已删除成员。
 
 ## 8. 新增游戏版本 checklist
 
