@@ -74,6 +74,59 @@ public class ModImportSafetyTest {
 		assertTrue(new File(mods, "mod_manifest.json").isFile());
 	}
 
+	@Test public void workshopSourceMigrationRollsBackToSupplyStationInstall() throws Exception {
+		String publishedFileId = "99001";
+		String modId = "MigrationRollbackMod";
+		File source = supplyStationInstall(publishedFileId, modId, "old-dll");
+		ExtraSettingsRepository.PreparedModImport prepared = repository.prepareDownloadedModImport(
+			archive(new JSONObject().put("id", modId).put("pck_name", "payload")),
+			"mod.zip"
+		);
+
+		ExtraSettingsRepository.WorkshopModImportResult result = repository.commitPreparedWorkshopModMigration(
+			prepared, "workshop", publishedFileId, "public-beta", source
+		);
+		File target = new File(repository.getModsRootDir(), "workshop/public-beta/" + publishedFileId);
+		assertFalse(source.exists());
+		assertTrue(new File(target, modId + ".dll").isFile());
+
+		repository.rollbackWorkshopModImport(result);
+
+		assertFalse(target.exists());
+		assertEquals("old-dll", new String(Files.readAllBytes(new File(source, modId + ".dll").toPath()), StandardCharsets.UTF_8));
+	}
+
+	@Test public void finalizedWorkshopSourceMigrationRemovesSupplyStationInstall() throws Exception {
+		String publishedFileId = "99002";
+		String modId = "MigrationFinalizeMod";
+		File source = supplyStationInstall(publishedFileId, modId, "old-dll");
+		ExtraSettingsRepository.PreparedModImport prepared = repository.prepareDownloadedModImport(
+			archive(new JSONObject().put("id", modId).put("pck_name", "payload")),
+			"mod.zip"
+		);
+
+		ExtraSettingsRepository.WorkshopModImportResult result = repository.commitPreparedWorkshopModMigration(
+			prepared, "workshop", publishedFileId, "public-beta", source
+		);
+		repository.finalizeWorkshopModImport(result);
+
+		File target = new File(repository.getModsRootDir(), "workshop/public-beta/" + publishedFileId);
+		assertFalse(source.exists());
+		assertEquals("fixture-dll", new String(Files.readAllBytes(new File(target, modId + ".dll").toPath()), StandardCharsets.UTF_8));
+		assertFalse(result.replacedBackupRoot.exists());
+	}
+
+	private File supplyStationInstall(String publishedFileId, String modId, String dllContent) throws Exception {
+		File source = new File(repository.getModsRootDir(), "workshop/supply-station-default/" + publishedFileId);
+		Files.createDirectories(source.toPath());
+		Files.write(
+			new File(source, modId + ".json").toPath(),
+			new JSONObject().put("id", modId).put("pck_name", modId).toString().getBytes(StandardCharsets.UTF_8)
+		);
+		Files.write(new File(source, modId + ".dll").toPath(), dllContent.getBytes(StandardCharsets.UTF_8));
+		return source;
+	}
+
 	private File archive(JSONObject manifest) throws Exception {
 		File zip = File.createTempFile("mod-safety-", ".zip", context.getCacheDir());
 		try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip.toPath()))) {

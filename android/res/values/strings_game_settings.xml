@@ -84,7 +84,9 @@
     <string name="workshop_supply_station_auth_hint">If you do not have a Steam account, or your account does not own the game, you can enable Download with Spire Supply Station in Workshop → Settings to try anonymous downloads through apricityx’s third-party service. Some items may remain unavailable. Read the About information and copyright statement beside the switch first.</string>
     <string name="workshop_supply_station_prerequisites_title">Prerequisite check incomplete</string>
     <string name="workshop_supply_station_prerequisites_failed">The Steam prerequisite list could not be retrieved. You can still download this item through Spire Supply Station, but this does not mean it has no dependencies. Check its description and the dependency warnings after import.</string>
-    <string name="workshop_supply_station_disabled_update">This record was downloaded from Spire Supply Station. Enable Download with Spire Supply Station in Workshop settings before updating. To switch to Steam, download again from the item page and select a branch.</string>
+    <string name="workshop_replace_supply_station_title">Replace download source?</string>
+    <string name="workshop_replace_supply_station_message">“%1$s” was installed from Spire Supply Station. Replace it with the Steam version for branch %2$s? The current MOD remains installed unless the Steam download and import both succeed.</string>
+    <string name="workshop_replace_with_steam">Replace with Steam version</string>
     <string name="workshop_download_group">Import group</string>
     <string name="workshop_download_group_hint">Folder/group name, e.g. workshop</string>
     <string name="workshop_download_branch">Download branch</string>
@@ -155,10 +157,12 @@
     <string name="workshop_downloads_title">Download tasks</string>
     <string name="workshop_downloads_subtitle">Workshop download history for the current MOD folder.</string>
     <string name="workshop_downloading_section">Downloading</string>
+    <string name="workshop_updatable_section">Updates available</string>
     <string name="workshop_downloaded_section">Downloaded</string>
     <string name="workshop_update_all">Update all (%1$d)</string>
     <string name="workshop_update_all_started">Queued %1$d update(s).</string>
     <string name="workshop_no_active_downloads">No active downloads.</string>
+    <string name="workshop_no_updates">No updates available.</string>
     <string name="workshop_loading_more">Loading more…</string>
     <string name="workshop_load_more_failed">Failed to load more: %1$s</string>
     <string name="workshop_download_progress_line">%1$d%% · %2$s</string>

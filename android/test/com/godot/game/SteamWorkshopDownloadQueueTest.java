@@ -1,7 +1,9 @@
 package com.godot.game;
 
 import android.app.Application;
+import android.app.Dialog;
 import android.os.Handler;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import org.junit.After;
 import org.junit.Before;
@@ -11,6 +13,8 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.LooperMode;
+import org.robolectric.shadows.ShadowDialog;
+import org.robolectric.shadows.ShadowLooper;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -92,6 +96,42 @@ public class SteamWorkshopDownloadQueueTest {
 		assertEquals(Arrays.asList("90001"), queuedIds());
 		assertSame(otherBranch, queue.get(0));
 		assertEquals(1, tasks.size());
+	}
+
+	@Test public void supplyStationPromptCanQueueForcedSteamReplacement() throws Exception {
+		SteamWorkshopPreferences.setDownloadBranchMode(activity, SteamWorkshopPreferences.BRANCH_MODE_PUBLIC_BETA);
+		Object request = pending("90020", option("supply-station-default", ""), true);
+
+		invoke("showSupplyStationReplacementDialog", new Class<?>[] { request.getClass() }, request);
+
+		Dialog dialog = ShadowDialog.getLatestDialog();
+		assertNotNull(dialog);
+		Button cancel = dialog.findViewById(android.R.id.button2);
+		Button replace = dialog.findViewById(android.R.id.button1);
+		assertEquals(activity.getString(android.R.string.cancel), cancel.getText().toString());
+		assertEquals(activity.getString(R.string.workshop_replace_with_steam), replace.getText().toString());
+		for (int index = 1; index <= 5; index++) addActive("9010" + index);
+		replace.performClick();
+		ShadowLooper.idleMainLooper();
+
+		assertEquals(1, queue.size());
+		Object replacement = queue.get(0);
+		assertEquals(true, field(replacement, "updateExisting"));
+		assertEquals(true, field(replacement, "forceSteam"));
+		assertEquals("public-beta", ((SteamWorkshopDownloader.BranchOption) field(replacement, "selectedOption")).getBranch());
+	}
+
+	@Test public void cancellingSupplyStationPromptDoesNotQueueReplacement() throws Exception {
+		Object request = pending("90021", option("supply-station-default", ""), true);
+		invoke("showSupplyStationReplacementDialog", new Class<?>[] { request.getClass() }, request);
+		for (int index = 1; index <= 5; index++) addActive("9020" + index);
+
+		Dialog dialog = ShadowDialog.getLatestDialog();
+		assertNotNull(dialog);
+		((Button) dialog.findViewById(android.R.id.button2)).performClick();
+		ShadowLooper.idleMainLooper();
+
+		assertTrue(queue.isEmpty());
 	}
 
 	private void merge(List<SteamWorkshopCatalog.RequiredItem> required, String currentId) throws Exception {

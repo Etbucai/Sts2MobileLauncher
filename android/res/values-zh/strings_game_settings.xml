@@ -84,7 +84,9 @@
     <string name="workshop_supply_station_auth_hint">没有 Steam 账号，或当前账号未购买游戏时，也可以在“创意工坊 → 设置”开启“使用尖塔补给站下载”，尝试通过 apricityx 的第三方服务匿名下载。部分条目仍可能不可用，请先阅读开关左侧“关于”中的说明和版权声明。</string>
     <string name="workshop_supply_station_prerequisites_title">前置 MOD 检查未完成</string>
     <string name="workshop_supply_station_prerequisites_failed">无法从 Steam 取得前置 MOD 列表。你可以继续通过尖塔补给站下载当前条目，但这不代表没有依赖；请根据 MOD 说明和导入后的依赖提示补齐前置。</string>
-    <string name="workshop_supply_station_disabled_update">此记录来自尖塔补给站。请先在创意工坊设置开启“使用尖塔补给站下载”再更新；若要改用 Steam，请从条目页面重新下载并选择分支。</string>
+    <string name="workshop_replace_supply_station_title">替换下载来源？</string>
+    <string name="workshop_replace_supply_station_message">“%1$s”当前安装自尖塔补给站。是否自动替换为 Steam 分支 %2$s 的版本？只有 Steam 下载和导入全部成功后才会移除当前版本。</string>
+    <string name="workshop_replace_with_steam">替换为 Steam 版本</string>
     <string name="workshop_download_group">导入分组</string>
     <string name="workshop_download_group_hint">文件夹/分组名，例如 workshop</string>
     <string name="workshop_download_branch">下载分支</string>
@@ -155,10 +157,12 @@
     <string name="workshop_downloads_title">下载任务</string>
     <string name="workshop_downloads_subtitle">当前 MOD 目录中的创意工坊下载任务记录。</string>
     <string name="workshop_downloading_section">下载中</string>
+    <string name="workshop_updatable_section">可更新</string>
     <string name="workshop_downloaded_section">已下载</string>
     <string name="workshop_update_all">一键更新(%1$d)</string>
     <string name="workshop_update_all_started">已加入 %1$d 个更新任务。</string>
     <string name="workshop_no_active_downloads">当前没有下载任务。</string>
+    <string name="workshop_no_updates">当前没有可更新项目。</string>
     <string name="workshop_loading_more">正在加载更多…</string>
     <string name="workshop_load_more_failed">加载更多失败：%1$s</string>
     <string name="workshop_download_progress_line">%1$d%% · %2$s</string>

@@ -200,6 +200,26 @@ public final class SteamWorkshopLibrary {
 	}
 
 	public Entry recordInstall(SteamWorkshopCatalog.Item item, File installRoot, List<ExtraSettingsRepository.ModEntry> importedMods, InstallContext installContext) throws Exception {
+		return recordInstall(item, installRoot, importedMods, installContext, null);
+	}
+
+	public Entry recordInstallReplacing(
+		SteamWorkshopCatalog.Item item,
+		File installRoot,
+		List<ExtraSettingsRepository.ModEntry> importedMods,
+		InstallContext installContext,
+		Entry replacedEntry
+	) throws Exception {
+		return recordInstall(item, installRoot, importedMods, installContext, replacedEntry);
+	}
+
+	private Entry recordInstall(
+		SteamWorkshopCatalog.Item item,
+		File installRoot,
+		List<ExtraSettingsRepository.ModEntry> importedMods,
+		InstallContext installContext,
+		Entry replacedEntry
+	) throws Exception {
 		InstallContext safeContext = installContext == null ? InstallContext.empty() : installContext;
 		List<String> modIds = new ArrayList<>();
 		if (importedMods != null) {
@@ -252,7 +272,8 @@ public final class SteamWorkshopLibrary {
 			List<Entry> entries = migrateLegacyScopeMetadata(normalizeEntries(readEntries()));
 			Map<String, Entry> byId = new LinkedHashMap<>();
 			for (Entry entry : entries) {
-				if (!shouldDropSupersededEntry(entry, updated)) {
+				boolean explicitlyReplaced = replacedEntry != null && replacedEntry.key().equals(entry.key());
+				if (!explicitlyReplaced && !shouldDropSupersededEntry(entry, updated)) {
 					byId.put(entry.key(), entry);
 				}
 			}
