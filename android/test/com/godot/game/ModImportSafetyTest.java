@@ -10,9 +10,13 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import static org.junit.Assert.*;
@@ -116,15 +120,107 @@ public class ModImportSafetyTest {
 		assertFalse(result.replacedBackupRoot.exists());
 	}
 
+	@Test public void recoveryDoesNotConsumeBackupWhileWorkshopUpdateIsPending() throws Exception {
+		String publishedFileId = "99003";
+		String modId = "PendingUpdateMod";
+		File target = workshopInstall(publishedFileId, modId, "old-dll");
+		ExtraSettingsRepository.PreparedModImport prepared = repository.prepareDownloadedModImport(
+			archive(new JSONObject().put("id", modId).put("pck_name", "payload")),
+			"mod.zip"
+		);
+
+		ExtraSettingsRepository.WorkshopModImportResult result = repository.commitPreparedWorkshopModImport(
+			prepared, "workshop", publishedFileId, "public-beta", true
+		);
+		assertEquals("fixture-dll", read(new File(target, modId + ".dll")));
+		assertTrue(result.backupRoot.isDirectory());
+
+		repository.ensureAppDirectories();
+		assertTrue(result.backupRoot.isDirectory());
+
+		repository.rollbackWorkshopModImport(result);
+		assertEquals("old-dll", read(new File(target, modId + ".dll")));
+	}
+
+	@Test public void workshopRecoveryWaitsForInstallTransactionLock() throws Exception {
+		String publishedFileId = "99004";
+		File branch = new File(repository.getModsRootDir(), "workshop/public-beta");
+		Files.createDirectories(branch.toPath());
+		File backup = new File(branch, "." + publishedFileId + ".backup-test");
+		File incoming = new File(branch, "." + publishedFileId + ".incoming-test");
+		Files.createDirectories(backup.toPath());
+		Files.createDirectories(incoming.toPath());
+		Files.write(new File(backup, "sentinel").toPath(), "old".getBytes(StandardCharsets.UTF_8));
+
+		Field lockField = ExtraSettingsRepository.class.getDeclaredField("WORKSHOP_INSTALL_TRANSACTION_LOCK");
+		lockField.setAccessible(true);
+		Object lock = lockField.get(null);
+		CountDownLatch started = new CountDownLatch(1);
+		CountDownLatch finished = new CountDownLatch(1);
+		AtomicReference<Throwable> failure = new AtomicReference<>();
+		Thread recovery = new Thread(() -> {
+			started.countDown();
+			try {
+				repository.ensureAppDirectories();
+			} catch (Throwable throwable) {
+				failure.set(throwable);
+			} finally {
+				finished.countDown();
+			}
+		});
+
+		synchronized (lock) {
+			recovery.start();
+			assertTrue(started.await(2, TimeUnit.SECONDS));
+			assertFalse(finished.await(200, TimeUnit.MILLISECONDS));
+			assertTrue(backup.isDirectory());
+			assertTrue(incoming.isDirectory());
+		}
+		assertTrue(finished.await(5, TimeUnit.SECONDS));
+		assertNull(failure.get());
+		assertTrue(new File(branch, publishedFileId + "/sentinel").isFile());
+		assertFalse(backup.exists());
+		assertFalse(incoming.exists());
+	}
+
+	@Test public void workshopMoveFailureIncludesFilesystemCauseAndPaths() {
+		File source = new File(context.getFilesDir(), "missing-workshop-source");
+		File target = new File(context.getFilesDir(), "missing-workshop-target");
+
+		IOException failure = assertThrows(
+			IOException.class,
+			() -> ExtraSettingsRepository.moveWorkshopPath(source, target, "Unable to publish Workshop install")
+		);
+
+		assertTrue(failure.getMessage().contains("Unable to publish Workshop install"));
+		assertTrue(failure.getMessage().contains(source.getAbsolutePath()));
+		assertTrue(failure.getMessage().contains(target.getAbsolutePath()));
+		assertNotNull(failure.getCause());
+	}
+
 	private File supplyStationInstall(String publishedFileId, String modId, String dllContent) throws Exception {
 		File source = new File(repository.getModsRootDir(), "workshop/supply-station-default/" + publishedFileId);
-		Files.createDirectories(source.toPath());
+		writeInstalledMod(source, modId, dllContent);
+		return source;
+	}
+
+	private File workshopInstall(String publishedFileId, String modId, String dllContent) throws Exception {
+		File target = repository.getWorkshopItemInstallDir("workshop", publishedFileId, "public-beta");
+		writeInstalledMod(target, modId, dllContent);
+		return target;
+	}
+
+	private void writeInstalledMod(File directory, String modId, String dllContent) throws Exception {
+		Files.createDirectories(directory.toPath());
 		Files.write(
-			new File(source, modId + ".json").toPath(),
+			new File(directory, modId + ".json").toPath(),
 			new JSONObject().put("id", modId).put("pck_name", modId).toString().getBytes(StandardCharsets.UTF_8)
 		);
-		Files.write(new File(source, modId + ".dll").toPath(), dllContent.getBytes(StandardCharsets.UTF_8));
-		return source;
+		Files.write(new File(directory, modId + ".dll").toPath(), dllContent.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private String read(File file) throws Exception {
+		return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
 	}
 
 	private File archive(JSONObject manifest) throws Exception {
